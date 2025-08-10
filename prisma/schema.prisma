@@ -1,0 +1,107 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Dataset {
+  id               String         @id
+  doi              String?
+  title            String
+  abstract         String?
+  publisher        String?
+  license          String?
+  timeStart        DateTime?
+  timeEnd          DateTime?
+  bboxMinX         Float?
+  bboxMinY         Float?
+  bboxMaxX         Float?
+  bboxMaxY         Float?
+  sourceSystem     String?
+  updatedAt        DateTime       @updatedAt
+  createdAt        DateTime       @default(now())
+  // Additional canonical metadata fields (stored as JSON for portability across SQLite/Postgres)
+  keywords         Json?
+  platforms        Json?
+  instruments      Json?
+  provenance       Json?
+
+  variables        Variable[]
+  distributions    Distribution[]
+  collections      Collection[]    @relation("CollectionDatasets")
+}
+
+model Variable {
+  id           String   @id @default(cuid())
+  datasetId    String
+  name         String
+  standardName String?
+  units        String?
+  longName     String?
+  dims         Json?
+  stats        Json?
+
+  dataset      Dataset  @relation(fields: [datasetId], references: [id])
+}
+
+model Distribution {
+  id            String  @id @default(cuid())
+  datasetId     String
+  url           String
+  accessService String
+  format        String
+  size          Int?
+  checksum      String?
+  accessRights  String?
+
+  dataset       Dataset @relation(fields: [datasetId], references: [id])
+}
+
+model Collection {
+  id          String   @id
+  title       String
+  description String?
+  publisher   String?
+  createdAt   DateTime @default(now())
+
+  datasets    Dataset[] @relation("CollectionDatasets")
+}
+
+model IngestionJob {
+  id         String   @id @default(cuid())
+  source     String
+  status     String   // queued | running | success | failed
+  message    String?
+  createdAt  DateTime @default(now())
+  finishedAt DateTime?
+}
+
+model TransformJob {
+  id         String   @id @default(cuid())
+  spec       Json
+  status     String   // queued | running | success | failed
+  message    String?
+  outputUrl  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// Harvest targets discovered from authoritative catalogs; queued for crawling
+model HarvestTarget {
+  id            String   @id @default(cuid())
+  kind          String   // onestop | erddap_base | thredds_catalog | stac_root | opendap
+  url           String   @unique
+  status        String?  // queued | success | failed
+  lastChecked   DateTime?
+  attempts      Int      @default(0)
+  discoveredFrom String? // source collection id or note
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
