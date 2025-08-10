@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest",
+    "postinstall": "prisma generate",
     "ingest": "TS_NODE_TRANSPILE_ONLY=1 node -e \"require('ts-node/register'); require('./scripts/ingest.ts');\""
   },
   "dependencies": {
