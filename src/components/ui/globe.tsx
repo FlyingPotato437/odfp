@@ -14,10 +14,12 @@ interface GlobeProps {
 
 export function Globe({ className, markers = [] }: GlobeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const locationToAngles = (lat: number, long: number) => {
     return [Math.PI - ((long * Math.PI) / 180 - Math.PI / 2), (lat * Math.PI) / 180];
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const focusRef = useRef([0, 0]);
 
   useEffect(() => {

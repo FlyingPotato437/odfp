@@ -6,7 +6,7 @@ import { ArrowRight, Search, Database, Waves } from "lucide-react";
 
 export function Hero() {
   // NOAA data locations for globe markers
-  const noaaLocations = [
+  const noaaLocations: Array<{ location: [number, number]; size?: number }> = [
     { location: [39.0458, -76.6413] }, // Baltimore, MD - NOAA headquarters  
     { location: [25.7617, -80.1918] }, // Miami, FL - Hurricane Center
     { location: [61.2181, -149.9003] }, // Anchorage, AK - Alaska region
@@ -120,7 +120,7 @@ export function Hero() {
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
                 <Button 
-                  variant="outline" 
+                  variant="secondary" 
                   size="lg"
                   onClick={() => window.open('https://data.noaa.gov/onestop/', '_blank')}
                 >

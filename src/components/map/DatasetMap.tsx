@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Rectangle } from "react-leaflet";
-import type { LatLngBoundsExpression } from "leaflet";
+import type { LatLngBoundsExpression, LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 type Props = {
@@ -31,13 +31,13 @@ export function DatasetMap({ bbox, height = 260 }: Props) {
     ] as [[number, number], [number, number]];
   }, [bbox]);
 
-  const center = useMemo(() => {
-    if (!bbox) return [20, 0] as [number, number];
+  const center: LatLngTuple = useMemo(() => {
+    if (!bbox) return [20, 0] as LatLngTuple;
     const [minX, minY, maxX, maxY] = bbox;
-    if ([minX, minY, maxX, maxY].some(v => v == null || !Number.isFinite(v))) return [20, 0];
+    if ([minX, minY, maxX, maxY].some(v => v == null || !Number.isFinite(v))) return [20, 0] as LatLngTuple;
     const lat = (minY + maxY) / 2;
     const lon = (minX + maxX) / 2;
-    return [lat, lon] as [number, number];
+    return [lat, lon] as LatLngTuple;
   }, [bbox]);
 
   return (

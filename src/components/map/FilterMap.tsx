@@ -41,11 +41,13 @@ export function FilterMap({ bbox, onBbox }: Props) {
   }, []);
   const rects: LatLngBoundsExpression[] | undefined = (() => {
     if (!bbox) return undefined;
-    let [minX, minY, maxX, maxY] = bbox;
+    let minX = bbox[0];
+    const minY = bbox[1];
+    let maxX = bbox[2];
+    const maxY = bbox[3];
     // Validate numeric and geographic ranges for latitude
     if ([minX, minY, maxX, maxY].some((v) => v == null || !Number.isFinite(v))) return undefined;
-    const _minY = minY; const _maxY = maxY; // satisfy prefer-const for lat variables
-    if (_minY < -90 || _minY > 90 || _maxY < -90 || _maxY > 90) return undefined;
+    if (minY < -90 || minY > 90 || maxY < -90 || maxY > 90) return undefined;
     // Clamp longitudes to [-180, 180]
     minX = Math.max(-180, Math.min(180, minX));
     maxX = Math.max(-180, Math.min(180, maxX));
@@ -87,13 +89,8 @@ export function FilterMap({ bbox, onBbox }: Props) {
             style={{ height: "100%", width: "100%" }} 
             scrollWheelZoom
             key={mounted ? "mounted" : "not-mounted"}
-            whenCreated={(map) => {
-              try {
-                const b = map.getBounds();
-                const sw = b.getSouthWest();
-                const ne = b.getNorthEast();
-                onBbox([sw.lng, sw.lat, ne.lng, ne.lat]);
-              } catch {}
+            whenReady={() => {
+              // Initial bbox setting handled by MoveEndCapture
             }}
           >
           {basemap === "osm" ? (
