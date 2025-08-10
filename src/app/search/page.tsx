@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import dynamic from "next/dynamic";
 import type { SearchResult } from "@/lib/types";
@@ -8,14 +8,12 @@ import { ResultCard } from "@/components/search/ResultCard";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Facets } from "@/components/search/Facets";
 import { Button } from "@/components/ui/Button";
+import { Chat } from "@/components/ai/Chat";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 
-const FilterMapClient = dynamic(
-  () => import("@/components/map/FilterMap").then(m => ({ default: m.FilterMap })), 
-  { 
-    ssr: false,
-    loading: () => <div style={{ height: 360 }} className="flex w-full items-center justify-center bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-300">Loading map…</div>
-  }
-);
+const Insights = dynamic(() => import("@/components/ai/Insights").then(m => m.Insights), { ssr: false });
+
+// Removed map-based geographic filter panel per request.
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -34,25 +32,29 @@ export default function SearchPage() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   useEffect(() => {
-    // Sync params with current URL on mount and navigation
-    const syncParams = () => {
-      const newParams = new URLSearchParams(window.location.search);
-      setParams(newParams);
+    // Always set from current URL on mount (ensures first render reflects query)
+    const applyFromLocation = () => setParams(new URLSearchParams(window.location.search));
+    applyFromLocation();
+
+    // Track last seen search string for later comparisons
+    const prev = { current: window.location.search } as { current: string };
+    const syncIfChanged = () => {
+      const cur = window.location.search;
+      if (cur !== prev.current) {
+        prev.current = cur;
+        applyFromLocation();
+      }
     };
-    
-    // Sync on mount
-    syncParams();
-    
+
     // Sync on browser back/forward
-    const onPop = () => syncParams();
+    const onPop = () => syncIfChanged();
     window.addEventListener("popstate", onPop);
-    
-    // Also sync on any URL change (for manual URL editing)
-    const interval = setInterval(syncParams, 100);
-    
+    // Sync when tab becomes visible again (covers manual URL edits or external nav)
+    const onVis = () => { if (document.visibilityState === "visible") syncIfChanged(); };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       window.removeEventListener("popstate", onPop);
-      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
@@ -61,25 +63,29 @@ export default function SearchPage() {
   const qValue = params.get('q')?.trim();
   const variablesValue = params.get('variables')?.trim();
   const publisherValue = params.get('publisher')?.trim();
-  const hasSearchQuery = (qValue && qValue.length > 0) || 
-                        (variablesValue && variablesValue.length > 0) || 
-                        (publisherValue && publisherValue.length > 0) || 
-                        params.has('bbox') || 
-                        params.has('format') || 
-                        params.has('service') || 
-                        (params.size > 1); // More than just default parameters
+  // Treat a presence of any meaningful param (or page) as a submitted search
+  const hasSearchQuery = Boolean(
+    (qValue && qValue.length > 0) ||
+    (variablesValue && variablesValue.length > 0) ||
+    (publisherValue && publisherValue.length > 0) ||
+    params.has('bbox') ||
+    params.has('format') ||
+    params.has('service') ||
+    params.has('platform') ||
+    params.has('license') ||
+    params.has('time_start') ||
+    params.has('time_end') ||
+    params.has('sort') ||
+    params.has('page')
+  );
                         
-  // Debug logging
-  console.log('Search debug:', {
-    qValue,
-    variablesValue,
-    publisherValue,
-    hasSearchQuery,
-    paramsSize: params.size,
-    apiUrl: hasSearchQuery ? `/api/v1/search?${qs}` : null
-  });
+  // Debug logging (dev only)
+  if (process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.log('Search debug:', { qValue, variablesValue, publisherValue, hasSearchQuery, paramsSize: params.size, apiUrl: hasSearchQuery ? `/api/v1/search?${qs}` : null });
+  }
   
-  const { data } = useSWR<SearchResult>(
+  const { data, isLoading, isValidating } = useSWR<SearchResult>(
     hasSearchQuery ? `/api/v1/search?${qs}` : null, 
     fetcher, 
     { revalidateOnFocus: false, dedupingInterval: 1000 }
@@ -103,7 +109,7 @@ export default function SearchPage() {
       <div className="border-b border-slate-200/50 bg-white/90 backdrop-blur-sm dark:border-slate-800/50 dark:bg-slate-900/90">
         <div className="mx-auto max-w-7xl px-4 py-6">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Ocean Data Discovery</h1>
+            <h1 className="title-gradient text-3xl font-extrabold tracking-tight sm:text-4xl">Ocean Data Discovery</h1>
             <p className="text-slate-600 dark:text-slate-400">Search and explore oceanographic datasets from NOAA and partner institutions</p>
           </div>
           <Filters onApply={(newParams) => {
@@ -128,24 +134,7 @@ export default function SearchPage() {
             })} />
             </div>
             
-            <div className="rounded-xl border border-green-200/50 bg-gradient-to-br from-green-50 to-emerald-50 p-5 shadow-lg dark:border-green-800/50 dark:from-green-950/50 dark:to-emerald-950/50">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500">
-                  <div className="h-3 w-3 rounded bg-white"></div>
-                </div>
-                <h2 className="font-semibold text-green-900 dark:text-green-100">Geographic Filter</h2>
-              </div>
-              <p className="mb-3 text-sm text-green-700 dark:text-green-300">Pan and zoom to select a region</p>
-            <FilterMapClient
-              bbox={(() => {
-                const b = params.get("bbox");
-                if (!b) return undefined;
-                const p = b.split(",").map(Number);
-                return p.length === 4 && p.every(Number.isFinite) ? (p as [number, number, number, number]) : undefined;
-              })()}
-              onBbox={(b) => pushParams((u) => { u.searchParams.set("bbox", b.join(",")); u.searchParams.set("page", "1"); })}
-            />
-            </div>
+            {/* Geographic filter panel removed */}
             
             <div className="rounded-xl border border-amber-200/50 bg-gradient-to-br from-amber-50 to-orange-50 p-5 shadow-lg dark:border-amber-800/50 dark:from-amber-950/50 dark:to-orange-950/50">
               <div className="mb-4 flex items-center gap-3">
@@ -172,6 +161,16 @@ export default function SearchPage() {
                 </div>
               ))}
             </div>
+          </div>
+          {/* AI Assistant */}
+          <div className="rounded-xl border border-purple-200/50 bg-gradient-to-br from-purple-50 to-fuchsia-50 p-5 shadow-lg dark:border-purple-800/50 dark:from-purple-950/50 dark:to-fuchsia-950/50">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500">
+                <div className="h-3 w-3 rounded bg-white"></div>
+              </div>
+              <h2 className="font-semibold text-purple-900 dark:text-purple-100">Ask ODFP (AI)</h2>
+            </div>
+            <Chat />
           </div>
         </aside>
         
@@ -253,7 +252,16 @@ export default function SearchPage() {
               )}
               {hasSearchQuery && <span>{total} results</span>}
             </div>
+            <div className="mt-3">
+              <ProgressBar active={Boolean(hasSearchQuery && (isLoading || isValidating))} />
+            </div>
           </div>
+
+          {hasSearchQuery && (
+            <div className="mb-4">
+              <Insights query={qValue || ""} />
+            </div>
+          )}
 
           <div className={view === "grid" ? "grid grid-cols-1 gap-4 md:grid-cols-2" : "grid gap-4"}>
             {!hasSearchQuery && (
@@ -328,4 +336,3 @@ export default function SearchPage() {
     </main>
   );
 }
-

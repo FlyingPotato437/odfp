@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import Markdown from "@/components/ui/Markdown";
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -40,9 +41,15 @@ export function Chat() {
         )}
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
-            <div className={m.role === "user" ? "inline-block rounded-lg bg-blue-600 px-3 py-2 text-white" : "inline-block rounded-lg bg-slate-100 px-3 py-2 text-slate-900"}>
-              {m.content}
-            </div>
+            {m.role === "user" ? (
+              <div className="inline-block max-w-[85%] rounded-lg bg-blue-600 px-3 py-2 text-left text-white">
+                {m.content}
+              </div>
+            ) : (
+              <div className="inline-block max-w-[85%] rounded-lg bg-slate-100 px-3 py-2 text-left text-slate-900 dark:bg-slate-800 dark:text-slate-100">
+                <Markdown text={m.content} />
+              </div>
+            )}
           </div>
         ))}
         {loading && <div className="text-sm text-slate-500">Thinking…</div>}
@@ -56,4 +63,3 @@ export function Chat() {
     </div>
   );
 }
-

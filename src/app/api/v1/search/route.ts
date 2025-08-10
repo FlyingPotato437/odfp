@@ -110,6 +110,42 @@ export async function GET(req: NextRequest) {
     } catch {}
   }
 
+  // Second fallback: query NCEI Search Service live (beyond OneStop)
+  if ((result.total === 0 || !Array.isArray(result.results) || result.results.length === 0) && q) {
+    try {
+      const ncei = new URL("https://www.ncei.noaa.gov/access/services/search/v1/datasets");
+      ncei.searchParams.set("text", q);
+      ncei.searchParams.set("limit", String(query.size ?? 20));
+      ncei.searchParams.set("offset", "0");
+      const r = await fetch(ncei.toString(), { headers: { 'Accept': 'application/json' } });
+      if (r.ok) {
+        const j: { results?: Array<{ id?: string; title?: string; summary?: string; temporal?: { begin?: string; end?: string }; links?: { access?: Array<{ url?: string }>; other?: Array<{ url?: string }>; related?: Array<{ url?: string }> } }> } = await r.json();
+        const items = (Array.isArray(j?.results) ? j!.results! : []).slice(0, query.size ?? 20);
+        if (items.length) {
+          const toSafe = (u?: string) => (typeof u === 'string' ? u : '').trim();
+          const mapDist = (u: string) => ({ url: u, format: u.endsWith('.nc') ? 'NetCDF' : (u.endsWith('.csv') ? 'CSV' : 'HTTP'), service: (/(erddap|opendap|thredds)/i.exec(u)?.[1]?.toUpperCase() as any) || 'HTTP' });
+          return Response.json({
+            total: items.length,
+            page: 1,
+            size: items.length,
+            results: items.map((d) => ({
+              id: String(d.id || toSafe(d.title) || Math.random().toString(36).slice(2)),
+              title: String(d.title || d.id || 'Untitled dataset'),
+              publisher: undefined,
+              time: { start: d.temporal?.begin, end: d.temporal?.end },
+              spatial: { bbox: undefined },
+              variables: [],
+              distributions: [
+                ...((d.links?.access || []).map(x => toSafe(x.url)).filter(Boolean).map(mapDist)),
+                ...((d.links?.related || []).map(x => toSafe(x.url)).filter(Boolean).map(mapDist))
+              ],
+            }))
+          });
+        }
+      }
+    } catch {}
+  }
+
   // CSV export if requested
   const wantsCsv = out === "csv" || req.headers.get("accept")?.includes("text/csv");
   if (wantsCsv) {
@@ -155,4 +191,3 @@ export async function GET(req: NextRequest) {
 
   return Response.json(result, { status: 200 });
 }
-

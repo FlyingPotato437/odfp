@@ -14,13 +14,13 @@ type Props = {
 
 export function ResultCard({ id, title, publisher, time, variables, distributions }: Props) {
   return (
-    <Card className="overflow-hidden transition-shadow">
-      <CardHeader className="flex flex-col gap-2 bg-gradient-to-b from-white to-slate-50/60 dark:from-slate-900 dark:to-slate-900/60">
+    <Card className="card-hover overflow-hidden border border-slate-200/70 bg-white/90 backdrop-blur-sm transition-shadow dark:border-slate-800/70 dark:bg-slate-900/70">
+      <CardHeader className="flex flex-col gap-2 bg-gradient-to-b from-white to-slate-50/60 dark:from-slate-900 dark:to-slate-900/40">
         <div className="flex items-center justify-between gap-2">
-          <Link href={`/dataset/${encodeURIComponent(id)}`} className="text-lg font-semibold text-slate-900 hover:underline dark:text-slate-100">
+          <Link href={`/dataset/${encodeURIComponent(id)}`} className="highlight-underline text-lg font-semibold text-slate-900 hover:underline dark:text-slate-100">
             {title}
           </Link>
-          {publisher && <Badge className="whitespace-nowrap">{publisher}</Badge>}
+          {publisher && <Badge className="whitespace-nowrap glow bg-sky-50 text-sky-700 dark:bg-slate-800 dark:text-sky-300">{publisher}</Badge>}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
           {time?.start || time?.end ? (
@@ -31,7 +31,7 @@ export function ResultCard({ id, title, publisher, time, variables, distribution
           {Boolean(variables?.length) && <span className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400"><Globe2 className="h-4 w-4" />{variables?.length} variable{variables!.length === 1 ? "" : "s"}</span>}
           <div className="flex flex-wrap gap-1">
             {(variables || []).slice(0, 6).map((v) => (
-              <Badge key={v} variant="info">{v}</Badge>
+              <Badge key={v} variant="info" className="bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200">{v}</Badge>
             ))}
           </div>
         </div>
@@ -69,4 +69,3 @@ export function ResultCard({ id, title, publisher, time, variables, distribution
     </Card>
   );
 }
-
