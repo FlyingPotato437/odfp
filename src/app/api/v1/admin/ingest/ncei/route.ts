@@ -45,19 +45,17 @@ function inferFormatFromUrl(url: string): string {
 
 function shouldKeepVariable(name: string): boolean {
   const n = name.toLowerCase();
-  return [
-    "temperature",
-    "sst",
-    "salinity",
-    "chlorophyll",
-    "oxygen",
-    "precip",
-    "wind",
-    "pressure",
-    "wave",
-    "ph",
-    "nitrate",
-  ].some((k) => n.includes(k));
+  // Preserve key ocean and paleo-climate proxies so search can find δ18O and Uk'37
+  const paleoTerms = [
+    "d18o", "δ18o", "delta 18o", "delta-18o", "oxygen isotope", "stable oxygen isotope",
+    "uk37", "uk'37", "u37k", "u37k'", "alkenone", "tex86", "mg/ca", "foraminifera", "foram",
+  ];
+  const oceanTerms = [
+    "temperature", "sst", "salinity", "chlorophyll", "oxygen", "precip", "wind", "pressure", "wave", "ph", "nitrate",
+  ];
+  const hasUk37 = /u\s*'?k\s*(?:prime|['′’])?\s*37|uk'?\s*37|u37k'?/i.test(n);
+  const hasD18O = /(?:δ|d)\s*?18\s*?o/.test(n) || n.includes("oxygen isotope");
+  return hasUk37 || hasD18O || [...paleoTerms, ...oceanTerms].some((k) => n.includes(k));
 }
 
 export async function POST(req: NextRequest) {
@@ -66,11 +64,13 @@ export async function POST(req: NextRequest) {
   const text: string | undefined = typeof body.text === "string" ? body.text : undefined;
   const limit: number = typeof body.limit === "number" ? body.limit : 100;
   const available: boolean = body.available !== false; // default true
+  const embed: boolean = body.embed === true;
 
   const base = "https://www.ncei.noaa.gov/access/services/search/v1/datasets";
   const pageSize = 50;
   let offset = 0;
   let ingested = 0;
+  let embeddedOk = 0, embeddedFail = 0;
   const errors: string[] = [];
 
   while (ingested < limit) {
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
           const publisher = d.organization?.name || "NOAA NCEI";
           const accessLinks = d.links?.access || [];
 
-          await prisma.dataset.upsert({
+          const upserted = await prisma.dataset.upsert({
             where: { id: datasetId },
             create: {
               id: datasetId,
@@ -148,6 +148,17 @@ export async function POST(req: NextRequest) {
               },
             },
           });
+          if (embed) {
+            const vars = (upserted as unknown as { variables?: Array<{ name: string }> }).variables || [];
+            const textForEmbed = `${d.name}\n${d.description || ""}\n${publisher}\n${vars.map(v => v.name).join("; ")}`.trim();
+            try {
+              const { updateDatasetEmbedding } = await import("@/lib/embeddings");
+              const ok = await updateDatasetEmbedding(datasetId, textForEmbed);
+              if (ok) embeddedOk++; else embeddedFail++;
+            } catch {
+              embeddedFail++;
+            }
+          }
           ingested++;
           if (ingested >= limit) break;
         } catch (e) {

@@ -29,7 +29,9 @@ export async function GET(req: NextRequest) {
       'sea_water_ph',
       'dissolved_oxygen',
       'turbidity',
-      'sea_water_turbidity'
+      'sea_water_turbidity',
+      // Paleo proxies
+      "δ18O", "d18O", "oxygen isotope", "Uk'37", "UK37", "U37K'", "alkenone", "TEX86", "Mg/Ca"
     ];
     
     // Get unique variables from database to supplement the list
@@ -89,17 +91,17 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "invalid type" }, { status: 400 });
   }
 
-  const filtered = items
+    const filtered = items
     .filter((x) => prefix ? x.startsWith(prefix) : true)
     .sort((a, b) => {
-      // Prioritize ocean-related variables
-      const aIsOcean = a.includes('sea_') || a.includes('ocean_') || a.includes('marine_') || 
-                       a.includes('chlorophyll') || a.includes('wave_') || a.includes('current_');
-      const bIsOcean = b.includes('sea_') || b.includes('ocean_') || b.includes('marine_') || 
-                       b.includes('chlorophyll') || b.includes('wave_') || b.includes('current_');
+      // Prioritize ocean and paleo-related variables
+      const aIsOcean = a.includes('sea_') || a.includes('ocean_') || a.includes('marine_') || a.includes('chlorophyll') || a.includes('wave_') || a.includes('current_');
+      const bIsOcean = b.includes('sea_') || b.includes('ocean_') || b.includes('marine_') || b.includes('chlorophyll') || b.includes('wave_') || b.includes('current_');
+      const aIsPaleo = /(?:δ|d)\s*?18\s*?o/i.test(a) || /uk['′’]?\s*37|u37k['′’]?/i.test(a) || a.toLowerCase().includes('oxygen isotope') || a.toLowerCase().includes('alkenone');
+      const bIsPaleo = /(?:δ|d)\s*?18\s*?o/i.test(b) || /uk['′’]?\s*37|u37k['′’]?/i.test(b) || b.toLowerCase().includes('oxygen isotope') || b.toLowerCase().includes('alkenone');
       
-      if (aIsOcean && !bIsOcean) return -1;
-      if (!aIsOcean && bIsOcean) return 1;
+      if ((aIsOcean || aIsPaleo) && !(bIsOcean || bIsPaleo)) return -1;
+      if (!(aIsOcean || aIsPaleo) && (bIsOcean || bIsPaleo)) return 1;
       return a.localeCompare(b);
     })
     .slice(0, 10);
