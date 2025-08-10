@@ -123,7 +123,16 @@ export async function GET(req: NextRequest) {
         const items = (Array.isArray(j?.results) ? j!.results! : []).slice(0, query.size ?? 20);
         if (items.length) {
           const toSafe = (u?: string) => (typeof u === 'string' ? u : '').trim();
-          const mapDist = (u: string) => ({ url: u, format: u.endsWith('.nc') ? 'NetCDF' : (u.endsWith('.csv') ? 'CSV' : 'HTTP'), service: (/(erddap|opendap|thredds)/i.exec(u)?.[1]?.toUpperCase() as any) || 'HTTP' });
+          type Service = "HTTP" | "OPeNDAP" | "THREDDS" | "ERDDAP";
+          const mapDist = (u: string) => {
+            const format = u.endsWith('.nc') ? 'NetCDF' : (u.endsWith('.csv') ? 'CSV' : 'HTTP');
+            const detected = /(erddap|opendap|thredds)/i.exec(u)?.[1]?.toUpperCase();
+            let service: Service = 'HTTP';
+            if (detected === 'ERDDAP') service = 'ERDDAP';
+            else if (detected === 'THREDDS') service = 'THREDDS';
+            else if (detected === 'OPENDAP') service = 'OPeNDAP';
+            return { url: u, format, service };
+          };
           return Response.json({
             total: items.length,
             page: 1,

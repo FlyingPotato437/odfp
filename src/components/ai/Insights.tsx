@@ -25,8 +25,9 @@ export function Insights({ query }: Props) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json);
-    } catch (e: any) {
-      setError(e?.message || "Failed to synthesize");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message || "Failed to synthesize");
     } finally { setLoading(false); }
   };
 
