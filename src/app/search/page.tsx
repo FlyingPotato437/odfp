@@ -261,7 +261,7 @@ export default function SearchPage() {
                 <div className="text-slate-500 dark:text-slate-400">
                   <div className="text-lg mb-2">🔍 Start Your Ocean Data Discovery</div>
                   <p className="mb-4">Use the search filters above to find oceanographic datasets.</p>
-                  <p className="text-sm">Try searching for terms like "sea surface temperature", "wind", or "chlorophyll".</p>
+                  <p className="text-sm">Try searching for terms like sea surface temperature, wind, or chlorophyll.</p>
                   <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                     <Button variant="secondary" onClick={() => pushParams((u) => { u.searchParams.set("q", "sea surface temperature"); u.searchParams.set("page", "1"); })}>Sea Surface Temperature</Button>
                     <Button variant="secondary" onClick={() => pushParams((u) => { u.searchParams.set("q", "wind"); u.searchParams.set("page", "1"); })}>Wind</Button>

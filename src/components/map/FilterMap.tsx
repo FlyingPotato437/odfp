@@ -44,7 +44,8 @@ export function FilterMap({ bbox, onBbox }: Props) {
     let [minX, minY, maxX, maxY] = bbox;
     // Validate numeric and geographic ranges for latitude
     if ([minX, minY, maxX, maxY].some((v) => v == null || !Number.isFinite(v))) return undefined;
-    if (minY < -90 || minY > 90 || maxY < -90 || maxY > 90) return undefined;
+    const _minY = minY; const _maxY = maxY; // satisfy prefer-const for lat variables
+    if (_minY < -90 || _minY > 90 || _maxY < -90 || _maxY > 90) return undefined;
     // Clamp longitudes to [-180, 180]
     minX = Math.max(-180, Math.min(180, minX));
     maxX = Math.max(-180, Math.min(180, maxX));
