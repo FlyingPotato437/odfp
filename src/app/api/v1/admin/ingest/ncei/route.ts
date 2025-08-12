@@ -70,7 +70,6 @@ export async function POST(req: NextRequest) {
   const pageSize = 50;
   let offset = 0;
   let ingested = 0;
-  let embeddedOk = 0, embeddedFail = 0;
   const errors: string[] = [];
 
   while (ingested < limit) {
@@ -153,10 +152,9 @@ export async function POST(req: NextRequest) {
             const textForEmbed = `${d.name}\n${d.description || ""}\n${publisher}\n${vars.map(v => v.name).join("; ")}`.trim();
             try {
               const { updateDatasetEmbedding } = await import("@/lib/embeddings");
-              const ok = await updateDatasetEmbedding(datasetId, textForEmbed);
-              if (ok) embeddedOk++; else embeddedFail++;
+              await updateDatasetEmbedding(datasetId, textForEmbed);
             } catch {
-              embeddedFail++;
+              // Embedding failed, continue silently
             }
           }
           ingested++;

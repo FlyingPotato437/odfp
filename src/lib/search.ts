@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, Dataset, Variable, Distribution } from "@prisma/client";
 import { SearchQuery, SearchResult } from "@/lib/types";
+
+type DatasetWithRelations = Dataset & {
+  variables: Variable[];
+  distributions: Distribution[];
+};
 
 const validServices = ["HTTP", "OPeNDAP", "THREDDS", "ERDDAP", "FTP", "S3"] as const;
 type Service = typeof validServices[number];
@@ -254,7 +259,7 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
           id: d.id,
           doi: d.doi || undefined,
           license: d.license || undefined,
-          sourceSystem: (d as any).sourceSystem || undefined,
+          sourceSystem: (d as DatasetWithRelations).sourceSystem || undefined,
           title: d.title,
           publisher: d.publisher || undefined,
           abstract: d.abstract || undefined,
@@ -264,7 +269,7 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
             distributions: d.distributions.map((dist) => ({ url: dist.url, format: dist.format, service: toServiceStrict(dist.accessService) })),
         })),
       };
-    } catch (e) {
+    } catch {
       // Likely missing dataset_fts; will fallback to Prisma or Dataset FTS below.
     }
     try {
@@ -330,7 +335,7 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
           id: d.id,
           doi: d.doi || undefined,
           license: d.license || undefined,
-          sourceSystem: (d as any).sourceSystem || undefined,
+          sourceSystem: (d as DatasetWithRelations).sourceSystem || undefined,
           title: d.title,
           publisher: d.publisher || undefined,
           abstract: d.abstract || undefined,
@@ -340,7 +345,7 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
           distributions: d.distributions.map((dist) => ({ url: dist.url, format: dist.format, service: toServiceStrict(dist.accessService) })),
         })),
       };
-    } catch (e) {
+    } catch {
       // Fall back to Prisma filtering below
     }
   }
@@ -386,7 +391,7 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
       id: d.id,
       doi: d.doi || undefined,
       license: d.license || undefined,
-      sourceSystem: (d as any).sourceSystem || undefined,
+      sourceSystem: (d as DatasetWithRelations).sourceSystem || undefined,
       title: d.title,
       publisher: d.publisher || undefined,
       abstract: d.abstract || undefined,

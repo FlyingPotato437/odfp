@@ -2,6 +2,29 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { fetchGlobalErddapData, transformGlobalErddapDataset, GLOBAL_ERDDAP_SERVERS } from '@/lib/connectors/global-erddap';
 
+interface ServerRecord {
+  [key: string]: string;
+}
+
+interface VariableData {
+  name: string;
+  standardName?: string;
+  units?: string;
+  longName?: string;
+}
+
+interface DistributionData {
+  url: string;
+  accessService: string;
+  format: string;
+}
+
+
+interface ErrorRecord {
+  id: string;
+  error: string;
+}
+
 function auth(req: NextRequest): boolean {
   const header = req.headers.get('authorization') || '';
   const token = header.replace(/^bearer\s+/i, '');
@@ -17,9 +40,10 @@ export async function POST(req: NextRequest) {
   const maxPer = Number(body?.maxDatasetsPerServer ?? 20);
   const serverKeys: string[] = Array.isArray(body?.servers) ? body.servers : Object.keys(GLOBAL_ERDDAP_SERVERS);
 
-  const servers: Record<string, string> = {};
+  const servers: ServerRecord = {};
   for (const key of serverKeys) {
-    if ((GLOBAL_ERDDAP_SERVERS as any)[key]) (servers as any)[key] = (GLOBAL_ERDDAP_SERVERS as any)[key];
+    const typedServers = GLOBAL_ERDDAP_SERVERS as ServerRecord;
+    if (typedServers[key]) servers[key] = typedServers[key];
   }
   if (Object.keys(servers).length === 0) {
     return Response.json({ error: 'No valid servers specified' }, { status: 400 });
@@ -29,7 +53,8 @@ export async function POST(req: NextRequest) {
     const datasets = await fetchGlobalErddapData(servers, Math.max(1, Math.min(200, maxPer)));
     const transformed = datasets.map(transformGlobalErddapDataset);
 
-    let created = 0, updated = 0, errors: Array<{ id: string; error: string }> = [];
+    let created = 0, updated = 0;
+    const errors: ErrorRecord[] = [];
     for (const d of transformed) {
       try {
         const exists = await prisma.dataset.findUnique({ where: { id: d.id } });
@@ -47,8 +72,8 @@ export async function POST(req: NextRequest) {
               bboxMinY: d.bboxMinY,
               bboxMaxX: d.bboxMaxX,
               bboxMaxY: d.bboxMaxY,
-              variables: { create: d.variables.map((v: any) => ({ name: v.name, standardName: v.standardName, units: v.units, longName: v.longName })) },
-              distributions: { create: d.distributions.map((x: any) => ({ url: x.url, accessService: x.accessService, format: x.format })) },
+              variables: { create: d.variables.map((v: VariableData) => ({ name: v.name, standardName: v.standardName, units: v.units, longName: v.longName })) },
+              distributions: { create: d.distributions.map((x: DistributionData) => ({ url: x.url, accessService: x.accessService, format: x.format })) },
             },
           });
           created++;
@@ -66,14 +91,15 @@ export async function POST(req: NextRequest) {
               bboxMinY: d.bboxMinY,
               bboxMaxX: d.bboxMaxX,
               bboxMaxY: d.bboxMaxY,
-              variables: { deleteMany: {}, create: d.variables.map((v: any) => ({ name: v.name, standardName: v.standardName, units: v.units, longName: v.longName })) },
-              distributions: { deleteMany: {}, create: d.distributions.map((x: any) => ({ url: x.url, accessService: x.accessService, format: x.format })) },
+              variables: { deleteMany: {}, create: d.variables.map((v: VariableData) => ({ name: v.name, standardName: v.standardName, units: v.units, longName: v.longName })) },
+              distributions: { deleteMany: {}, create: d.distributions.map((x: DistributionData) => ({ url: x.url, accessService: x.accessService, format: x.format })) },
             },
           });
           updated++;
         }
-      } catch (e: any) {
-        errors.push({ id: d.id, error: String(e?.message || e) });
+      } catch (e: unknown) {
+        const error = e instanceof Error ? e.message : String(e);
+        errors.push({ id: d.id, error });
       }
     }
 
@@ -81,7 +107,8 @@ export async function POST(req: NextRequest) {
     try { await prisma.$executeRawUnsafe('refresh materialized view dataset_fts'); } catch {}
 
     return Response.json({ servers: Object.keys(servers), fetched: datasets.length, created, updated, errors }, { status: 200 });
-  } catch (error: any) {
-    return Response.json({ error: String(error?.message || error) }, { status: 500 });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: errorMessage }, { status: 500 });
   }
 }

@@ -3,6 +3,44 @@ import { semanticSearch } from "./indexer";
 import { prisma } from "@/lib/db";
 import { expandScientificQuery, discoverDatasetRelationships } from "./scientific-expansion";
 
+interface VariableWithMetadata {
+  standard_name?: string;
+  units?: string;
+  long_name?: string;
+  [key: string]: unknown;
+}
+
+interface PrismaVariable {
+  name: string;
+  standardName?: string | null;
+  units?: string | null;
+  longName?: string | null;
+}
+
+interface PrismaDistribution {
+  url: string;
+  accessService?: string | null;
+  access_service?: string | null;
+  format?: string | null;
+}
+
+interface PrismaDataset {
+  id: string;
+  title?: string | null;
+  abstract?: string | null;
+  doi?: string | null;
+  license?: string | null;
+  timeStart?: Date | null;
+  timeEnd?: Date | null;
+  bboxMinX?: number | null;
+  bboxMinY?: number | null;
+  bboxMaxX?: number | null;
+  bboxMaxY?: number | null;
+  variables: PrismaVariable[];
+  distributions: PrismaDistribution[];
+  [key: string]: unknown;
+}
+
 export interface DataSynthesis {
   query: string;
   synthesizedInsight: string;
@@ -76,7 +114,7 @@ export async function assessDataQuality(dataset: {
   // Variable richness (count + metadata depth if available)
   const varCountScore = Math.min(1.0, dataset.variables.length / 10);
   // Try to infer metadata depth when fields exist on variables
-  const enrichedMetaCount = (dataset.variables as any[]).filter(v => v?.standard_name || v?.units || v?.long_name).length;
+  const enrichedMetaCount = (dataset.variables as VariableWithMetadata[]).filter(v => v?.standard_name || v?.units || v?.long_name).length;
   const metaDepthScore = dataset.variables.length > 0 ? Math.min(1.0, enrichedMetaCount / Math.max(1, dataset.variables.length)) : 0;
   const variableRichness = Math.min(1.0, 0.7 * varCountScore + 0.3 * metaDepthScore);
 
@@ -195,7 +233,7 @@ export async function synthesizeDataInsights(query: string): Promise<DataSynthes
       spatialCoverage = `Approx bbox: [${minX.toFixed(1)}, ${minY.toFixed(1)}, ${maxX.toFixed(1)}, ${maxY.toFixed(1)}]`;
       // If there are multiple non-overlapping boxes, report potential gaps
       if (bboxes.length > 1) {
-        const centers = bboxes.map(b => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]);
+        // Calculate separation between bbox pairs
         let separatedPairs = 0;
         for (let i = 0; i < bboxes.length; i++) {
           for (let j = i + 1; j < bboxes.length; j++) {
@@ -214,18 +252,18 @@ export async function synthesizeDataInsights(query: string): Promise<DataSynthes
 
     // Generate AI synthesis
     const summarizeDataset = (item: typeof rankedDatasets[number]) => {
-      const d = item.dataset as any;
+      const d = item.dataset as PrismaDataset;
       const time = d.timeStart && d.timeEnd ? `${new Date(d.timeStart).getFullYear()}–${new Date(d.timeEnd).getFullYear()}` : "Unknown";
       const bbox = d.bboxMinX != null && d.bboxMinY != null && d.bboxMaxX != null && d.bboxMaxY != null
         ? `[${d.bboxMinX.toFixed?.(1) ?? d.bboxMinX}, ${d.bboxMinY.toFixed?.(1) ?? d.bboxMinY}, ${d.bboxMaxX.toFixed?.(1) ?? d.bboxMaxX}, ${d.bboxMaxY.toFixed?.(1) ?? d.bboxMaxY}]`
         : "Unknown";
-      const vars = (d.variables || []).slice(0, 8).map((v: any) => {
+      const vars = (d.variables || []).slice(0, 8).map((v: PrismaVariable) => {
         const name = v.name || '';
         const unit = v.units ? ` [${v.units}]` : '';
         const std = v.standardName ? ` (${v.standardName})` : '';
         return `${name}${std}${unit}`.trim();
       }).join(', ');
-      const services = (d.distributions || []).map((x: any) => x.accessService || x.access_service).filter(Boolean);
+      const services = (d.distributions || []).map((x: PrismaDistribution) => x.accessService || x.access_service).filter(Boolean);
       const svc = Array.from(new Set(services)).slice(0, 4).join(', ');
       const notes = d.abstract ? ` | Notes: ${String(d.abstract).slice(0, 160)}…` : '';
       const doi = d.doi ? ` | DOI: ${d.doi}` : '';

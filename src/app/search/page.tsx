@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import dynamic from "next/dynamic";
 import type { SearchResult } from "@/lib/types";
@@ -81,7 +81,6 @@ export default function SearchPage() {
                         
   // Debug logging (dev only)
   if (process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
     console.log('Search debug:', { qValue, variablesValue, publisherValue, hasSearchQuery, paramsSize: params.size, apiUrl: hasSearchQuery ? `/api/v1/search?${qs}` : null });
   }
   

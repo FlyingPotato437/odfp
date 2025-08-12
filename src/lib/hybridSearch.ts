@@ -5,6 +5,11 @@ import { prisma } from "@/lib/db";
 import type { Dataset, Variable, Distribution } from "@prisma/client";
 import { expandScientificQuery } from "@/lib/ai/scientific-expansion";
 
+type DatasetWithRelations = Dataset & {
+  variables: Variable[];
+  distributions: Distribution[];
+};
+
 export function rrfOrder(lex: SearchResult, sem: Array<{ id: string; score: number }>, k = 100): string[] {
   const rrf: Map<string, number> = new Map();
   const kRR = 60;
@@ -70,11 +75,11 @@ export async function hybridSearch(query: SearchQuery): Promise<SearchResult> {
       return {
         id: d.id,
         doi: d.doi || undefined,
-        license: (d as any).license || undefined,
-        sourceSystem: (d as any).sourceSystem || undefined,
+        license: (d as DatasetWithRelations).license || undefined,
+        sourceSystem: (d as DatasetWithRelations).sourceSystem || undefined,
         title: d.title,
         publisher: d.publisher || undefined,
-        abstract: (d as any).abstract || undefined,
+        abstract: (d as DatasetWithRelations).abstract || undefined,
         time: { start: d.timeStart?.toISOString(), end: d.timeEnd?.toISOString() },
         spatial: { bbox: [d.bboxMinX, d.bboxMinY, d.bboxMaxX, d.bboxMaxY] as [number, number, number, number] | undefined },
         variables: d.variables.map((v) => v.name),
@@ -94,29 +99,92 @@ export async function hybridSearch(query: SearchQuery): Promise<SearchResult> {
     if (services.includes('ERDDAP')) score += 0.25;
     if (services.includes('OPeNDAP')) score += 0.2;
     if (services.includes('THREDDS')) score += 0.1;
-    // Variable relevance boost
+    // Enhanced variable relevance boost with semantic matching
     const varNames = (r.variables || []).map(v => v.toLowerCase());
-    const varMatches = varNames.filter(v => Array.from(tokens).some(t => v.includes(t) || t.includes(v))).length;
-    score += Math.min(0.3, varMatches * 0.05);
+    let varScore = 0;
+    
+    // Direct variable name matches (highest weight)
+    const exactMatches = varNames.filter(v => Array.from(tokens).some(t => v === t)).length;
+    varScore += exactMatches * 0.15;
+    
+    // Partial variable name matches  
+    const partialMatches = varNames.filter(v => Array.from(tokens).some(t => v.includes(t) || t.includes(v))).length;
+    varScore += partialMatches * 0.05;
+    
+    // Oceanographic term semantic matching
+    const oceanographicTerms = {
+      'sst': ['sea_surface_temperature', 'surface_temperature', 'temp'],
+      'sss': ['sea_surface_salinity', 'surface_salinity', 'salinity'],
+      'chlorophyll': ['chlor', 'chl', 'chlorophyll_a'],
+      'wind': ['wind_speed', 'wind_direction', 'u_wind', 'v_wind'],
+      'wave': ['significant_wave_height', 'wave_period', 'wave_direction'],
+      'current': ['sea_water_velocity', 'current_speed', 'current_direction'],
+      'ice': ['sea_ice_concentration', 'sea_ice_thickness', 'ice_coverage']
+    };
+    
+    for (const [term, synonyms] of Object.entries(oceanographicTerms)) {
+      if (Array.from(tokens).some(t => t.includes(term))) {
+        const semanticMatches = varNames.filter(v => 
+          synonyms.some(syn => v.includes(syn))
+        ).length;
+        varScore += semanticMatches * 0.08;
+      }
+    }
+    
+    score += Math.min(0.4, varScore);
     // Recency proxy using time end
     const endYear = r.time?.end ? new Date(r.time.end).getUTCFullYear() : undefined;
     if (endYear && Number.isFinite(endYear)) {
       const age = Math.max(0, nowYear - endYear);
       score += Math.max(0, 0.25 - Math.min(0.25, age * 0.03));
     }
-    // Publisher/source mild boost
+    // Enhanced publisher/source credibility boost  
     const pub = (r.publisher || '').toLowerCase();
-    if (/noaa|ncei|ncep|swfsc|nmfs|copernicus|imos|whoi|ifremer|nasa/.test(pub)) score += 0.1;
+    // Tier 1: Primary authoritative sources
+    if (/noaa|ncei|ncep|nasa|copernicus/.test(pub)) score += 0.15;
+    // Tier 2: Major research institutions  
+    else if (/whoi|scripps|mbari|imos|ifremer|jamstec/.test(pub)) score += 0.12;
+    // Tier 3: Regional observing systems
+    else if (/glos|neracoos|secoora|gcoos|hakai/.test(pub)) score += 0.08;
+    // Tier 4: Other scientific institutions
+    else if (/university|institute|marine|ocean|fisheries/.test(pub)) score += 0.05;
     // DOI / license openness boosts
     if (r.doi) score += 0.05;
     const lic = (r.license || '').toLowerCase();
     if (/(cc|creative commons|odc|public|noaa open)/.test(lic)) score += 0.05;
-    // Query term hit in abstract/title for extra precision
+    // Enhanced query term matching with scientific context
     if (query.q && query.q.trim()) {
       const ql = query.q.trim().toLowerCase();
-      if ((r.title || '').toLowerCase().includes(ql)) score += 0.08;
-      if ((r.abstract || '').toLowerCase().includes(ql)) score += 0.05;
+      const title = (r.title || '').toLowerCase();
+      const abstract = (r.abstract || '').toLowerCase();
+      
+      // Exact phrase matches get highest boost
+      if (title.includes(ql)) score += 0.12;
+      if (abstract.includes(ql)) score += 0.08;
+      
+      // Individual word matches  
+      const queryWords = ql.split(/\s+/).filter(w => w.length > 2);
+      const titleWords = title.split(/\s+/);
+      const abstractWords = abstract.split(/\s+/);
+      
+      const titleMatches = queryWords.filter(qw => 
+        titleWords.some(tw => tw.includes(qw) || qw.includes(tw))
+      ).length;
+      const abstractMatches = queryWords.filter(qw => 
+        abstractWords.some(aw => aw.includes(qw) || qw.includes(aw))
+      ).length;
+      
+      score += (titleMatches / Math.max(1, queryWords.length)) * 0.06;
+      score += (abstractMatches / Math.max(1, queryWords.length)) * 0.04;
     }
+    
+    // Dataset completeness factors
+    let completenessBoost = 0;
+    if (r.spatial?.bbox) completenessBoost += 0.03;
+    if (r.time?.start && r.time?.end) completenessBoost += 0.03;
+    if (r.variables && r.variables.length > 5) completenessBoost += 0.02;
+    if (r.distributions && r.distributions.length > 1) completenessBoost += 0.02;
+    score += completenessBoost;
     return { r, score };
   }).sort((a,b) => b.score - a.score).map(x => x.r);
 

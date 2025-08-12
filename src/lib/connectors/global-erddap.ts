@@ -3,27 +3,57 @@
 
 import { fetchErddapAllDatasets, fetchErddapInfo } from './erddap';
 
-// Major ERDDAP servers worldwide
+// Comprehensive ERDDAP servers worldwide for maximum oceanographic data coverage
 export const GLOBAL_ERDDAP_SERVERS = {
-  // NOAA (already covered but included for completeness)
+  // NOAA - Primary US oceanographic data sources
   'NOAA_COASTWATCH': 'https://coastwatch.pfeg.noaa.gov',
-  'NOAA_UPWELL': 'https://upwell.pfeg.noaa.gov',
+  'NOAA_UPWELL': 'https://upwell.pfeg.noaa.gov', 
+  'NOAA_NCEI_ERDDAP': 'https://data.nodc.noaa.gov',
+  'NOAA_OSMC': 'https://osmc.noaa.gov',
   
-  // International servers
+  // European Marine Data Infrastructure
   'EMODnet_PHYSICS': 'https://erddap.emodnet-physics.eu',
+  'EMODnet_CHEMISTRY': 'https://erddap.emodnet-chemistry.eu',
   'IFREMER': 'https://data-sextant.ifremer.fr',
-  'BCCFISHERIES': 'https://data.pac-dfo.gc.ca',
-  'IMOS_AUSTRALIA': 'https://thredds.aodn.org.au',
   'MARINE_COPERNICUS': 'https://nrt.cmems-du.eu',
   'CORIOLIS': 'https://data.coriolis.eu.org',
-  'HAKAI': 'https://goose.hakai.org',
+  'BSH_GERMANY': 'https://erddap.bsh.de',
+  'IMR_NORWAY': 'https://erddap.imr.no',
   
-  // Academic and research institutions
+  // Asia-Pacific Region  
+  'IMOS_AUSTRALIA': 'https://thredds.aodn.org.au',
+  'JAMSTEC_JAPAN': 'https://www.godac.jamstec.go.jp',
+  'KIOST_KOREA': 'https://erddap.kiost.ac.kr',
+  'JMA_JAPAN': 'https://ds.data.jma.go.jp',
+  
+  // North America - Canada & Research Institutions
+  'BCCFISHERIES': 'https://data.pac-dfo.gc.ca',
+  'HAKAI': 'https://goose.hakai.org',
+  'MEDS_CANADA': 'https://www.meds-sdmm.dfo-mpo.gc.ca',
+  
+  // US Academic & Research Institutions
   'SCRIPPS_IO': 'https://sio-argo.ucsd.edu',
-  'WHOI': 'https://erddap.whoi.edu',
+  'WHOI': 'https://erddap.whoi.edu', 
   'MBARI': 'https://dods.mbari.org',
+  'RUTGERS': 'https://rucool.marine.rutgers.edu',
+  'AXIOMDATASCIENCE': 'https://data.axiomdatascience.com',
+  
+  // Regional Ocean Observing Systems (IOOS)
+  'GLOS': 'https://data.glos.us',
+  'NERACOOS': 'https://www.neracoos.org',
+  'SECOORA': 'https://erddap.secoora.org',
+  'GCOOS': 'https://data.gcoos.org',
+  
+  // International & Multi-national
   'SOCIB': 'https://api.socib.es',
-  'PUERTOS_ESPANA': 'https://portus.puertos.es'
+  'PUERTOS_ESPANA': 'https://portus.puertos.es',
+  'MARINE_IE': 'https://erddap.marine.ie',
+  'OOI': 'https://ooinet.oceanobservatories.org',
+  
+  // Specialized Climate & Satellite Data
+  'PODAAC_NASA': 'https://podaac-opendap.jpl.nasa.gov',
+  'GHRSST': 'https://podaac-opendap.jpl.nasa.gov',
+  'REMSS': 'https://data.remss.com'
 };
 
 export interface GlobalErddapDataset {
@@ -88,17 +118,17 @@ export async function fetchGlobalErddapData(
             const datasetSummary = limitedDatasets[j];
             const info = await fetchErddapInfo(serverUrl, datasetSummary.datasetID);
             
-            // Build access URLs
+            // Build access URLs based on dataset structure
+            const isGriddap = datasetSummary.dataStructure === 'griddap' || info.variables.some(v => 
+              v.name && ['longitude', 'latitude', 'time'].includes(v.name.toLowerCase())
+            );
+            const dataService = isGriddap ? 'griddap' : 'tabledap';
+            
             const accessUrls = [
               {
                 type: 'data' as const,
                 format: 'NetCDF',
-                url: `${serverUrl}/erddap/tabledap/${datasetSummary.datasetID}.nc`
-              },
-              {
-                type: 'data' as const,
-                format: 'CSV',
-                url: `${serverUrl}/erddap/tabledap/${datasetSummary.datasetID}.csv`
+                url: `${serverUrl}/erddap/${dataService}/${datasetSummary.datasetID}.nc`
               },
               {
                 type: 'metadata' as const,
@@ -108,9 +138,24 @@ export async function fetchGlobalErddapData(
               {
                 type: 'preview' as const,
                 format: 'HTML',
-                url: `${serverUrl}/erddap/tabledap/${datasetSummary.datasetID}.graph`
+                url: `${serverUrl}/erddap/${dataService}/${datasetSummary.datasetID}.graph`
               }
             ];
+            
+            // Add format-specific access URLs based on dataset type
+            if (isGriddap) {
+              accessUrls.splice(1, 0, {
+                type: 'data' as const,
+                format: 'Zarr',
+                url: `${serverUrl}/erddap/griddap/${datasetSummary.datasetID}.zarr`
+              });
+            } else {
+              accessUrls.splice(1, 0, {
+                type: 'data' as const,
+                format: 'CSV', 
+                url: `${serverUrl}/erddap/tabledap/${datasetSummary.datasetID}.csv`
+              });
+            }
             
             detailedDatasets.push({
               serverId,
@@ -157,20 +202,55 @@ export async function fetchGlobalErddapData(
 
 function getServerDisplayName(serverId: string): string {
   const names: Record<string, string> = {
-    'NOAA_COASTWATCH': 'NOAA CoastWatch',
-    'NOAA_UPWELL': 'NOAA Upwelling',
+    // NOAA
+    'NOAA_COASTWATCH': 'NOAA CoastWatch West Coast',
+    'NOAA_UPWELL': 'NOAA Upwelling Research',
+    'NOAA_NCEI_ERDDAP': 'NOAA National Centers for Environmental Information',
+    'NOAA_OSMC': 'NOAA Observing System Monitoring Center',
+    
+    // European
     'EMODnet_PHYSICS': 'EMODnet Physics',
+    'EMODnet_CHEMISTRY': 'EMODnet Chemistry',
     'IFREMER': 'IFREMER France',
-    'BCCFISHERIES': 'Fisheries and Oceans Canada',
-    'IMOS_AUSTRALIA': 'IMOS Australia',
-    'MARINE_COPERNICUS': 'Copernicus Marine',
-    'CORIOLIS': 'Coriolis France',
+    'MARINE_COPERNICUS': 'Copernicus Marine Environment Monitoring Service',
+    'CORIOLIS': 'Coriolis Oceanographic Data Center',
+    'BSH_GERMANY': 'German Maritime and Hydrographic Agency',
+    'IMR_NORWAY': 'Institute of Marine Research Norway',
+    
+    // Asia-Pacific
+    'IMOS_AUSTRALIA': 'Integrated Marine Observing System Australia',
+    'JAMSTEC_JAPAN': 'Japan Agency for Marine-Earth Science and Technology',
+    'KIOST_KOREA': 'Korea Institute of Ocean Science and Technology', 
+    'JMA_JAPAN': 'Japan Meteorological Agency',
+    
+    // North America
+    'BCCFISHERIES': 'Fisheries and Oceans Canada Pacific',
     'HAKAI': 'Hakai Institute',
-    'SCRIPPS_IO': 'Scripps Institution',
+    'MEDS_CANADA': 'Marine Environmental Data Service Canada',
+    
+    // US Academic
+    'SCRIPPS_IO': 'Scripps Institution of Oceanography',
     'WHOI': 'Woods Hole Oceanographic Institution',
     'MBARI': 'Monterey Bay Aquarium Research Institute',
-    'SOCIB': 'SOCIB Balearic Islands',
-    'PUERTOS_ESPANA': 'Puertos del Estado Spain'
+    'RUTGERS': 'Rutgers University Coastal Ocean Observation Lab',
+    'AXIOMDATASCIENCE': 'Axiom Data Science',
+    
+    // Regional Ocean Observing  
+    'GLOS': 'Great Lakes Observing System',
+    'NERACOOS': 'Northeastern Regional Association of Coastal Ocean Observing Systems',
+    'SECOORA': 'Southeast Coastal Ocean Observing Regional Association',
+    'GCOOS': 'Gulf of Mexico Coastal Ocean Observing System',
+    
+    // International
+    'SOCIB': 'Balearic Islands Coastal Observing and Forecasting System',
+    'PUERTOS_ESPANA': 'Puertos del Estado Spain',
+    'MARINE_IE': 'Marine Institute Ireland',
+    'OOI': 'Ocean Observatories Initiative',
+    
+    // Satellite/Climate
+    'PODAAC_NASA': 'NASA Physical Oceanography Distributed Active Archive Center',
+    'GHRSST': 'Group for High Resolution Sea Surface Temperature',
+    'REMSS': 'Remote Sensing Systems'
   };
   
   return names[serverId] || serverId.replace(/_/g, ' ');

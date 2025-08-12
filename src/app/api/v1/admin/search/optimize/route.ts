@@ -38,13 +38,14 @@ export async function POST(req: NextRequest) {
       `create index if not exists dataset_fts_gin on dataset_fts using gin (tsv)`
     ];
     for (const sql of statements) {
-      try { await prisma.$executeRawUnsafe(sql); } catch (e) { /* ignore each failure */ }
+      try { await prisma.$executeRawUnsafe(sql); } catch { /* ignore each failure */ }
     }
     // Final refresh to ensure it's populated
     try { await prisma.$executeRawUnsafe('refresh materialized view dataset_fts'); } catch {}
     return Response.json({ ok: true });
-  } catch (e: any) {
-    return Response.json({ error: String(e?.message || e) }, { status: 500 });
+  } catch (e: unknown) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    return Response.json({ error: errorMessage }, { status: 500 });
   }
 }
 

@@ -3,6 +3,38 @@ import { expandScientificQuery } from '@/lib/ai/scientific-expansion';
 import { assessDataQuality } from '@/lib/ai/synthesis-engine';
 import { rrfOrder } from '@/lib/hybridSearch';
 
+interface TestVariable {
+  name: string;
+  standard_name?: string;
+  units?: string;
+}
+
+interface TestDataset {
+  id: string;
+  title: string;
+  timeStart?: Date;
+  timeEnd?: Date;
+  bboxMinX?: number;
+  bboxMinY?: number;
+  bboxMaxX?: number;
+  bboxMaxY?: number;
+  variables: TestVariable[];
+  distributions: Array<{ url: string; accessService: string; format: string }>;
+  updatedAt?: Date;
+  doi?: string;
+  publisher?: string;
+  license?: string;
+}
+
+interface TestSearchResult {
+  id: string;
+  title: string;
+  variables: unknown[];
+  distributions: unknown[];
+  spatial: Record<string, unknown>;
+  time: Record<string, unknown>;
+}
+
 describe('scientific expansion', () => {
   it('adds fisheries and Atlantic variants', async () => {
     const q = await expandScientificQuery('Fishing data in the Atlantic Ocean');
@@ -23,8 +55,8 @@ describe('data quality assessment', () => {
       timeEnd: new Date(now.getFullYear()-1, 11, 31),
       bboxMinX: -80, bboxMinY: 20, bboxMaxX: -10, bboxMaxY: 60,
       variables: [
-        { name: 'sea_surface_temperature', standard_name: 'sea_surface_temperature', units: 'degC' } as any,
-        { name: 'cpue' } as any
+        { name: 'sea_surface_temperature', standard_name: 'sea_surface_temperature', units: 'degC' } as TestVariable,
+        { name: 'cpue' } as TestVariable
       ],
       distributions: [ { url: 'http://x', accessService: 'ERDDAP', format: 'NetCDF' } ],
       updatedAt: now,
@@ -32,7 +64,7 @@ describe('data quality assessment', () => {
       publisher: 'NOAA',
       license: 'CC-BY'
     };
-    const q = await assessDataQuality(ds as any);
+    const q = await assessDataQuality(ds as TestDataset);
     expect(q.recency).toBeGreaterThan(0.9);
     expect(q.spatialCoverage).toBeGreaterThan(0);
     expect(q.temporalCoverage).toBeGreaterThan(0);
@@ -45,9 +77,9 @@ describe('data quality assessment', () => {
 describe('rrfOrder', () => {
   it('fuses lexical and semantic rankings', () => {
     const lex = { total: 3, page: 1, size: 3, results: [
-      { id: 'A', title: 'A', variables: [], distributions: [], spatial: {}, time: {} } as any,
-      { id: 'B', title: 'B', variables: [], distributions: [], spatial: {}, time: {} } as any,
-      { id: 'C', title: 'C', variables: [], distributions: [], spatial: {}, time: {} } as any,
+      { id: 'A', title: 'A', variables: [], distributions: [], spatial: {}, time: {} } as TestSearchResult,
+      { id: 'B', title: 'B', variables: [], distributions: [], spatial: {}, time: {} } as TestSearchResult,
+      { id: 'C', title: 'C', variables: [], distributions: [], spatial: {}, time: {} } as TestSearchResult,
     ] };
     const sem = [ { id: 'C', score: 0.95 }, { id: 'B', score: 0.6 }, { id: 'D', score: 0.5 } ];
     const fused = rrfOrder(lex, sem, 4);

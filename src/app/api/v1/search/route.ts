@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-import { SearchQuery } from "@/lib/types";
+import { SearchQuery, AccessService } from "@/lib/types";
 import { hybridSearch } from "@/lib/hybridSearch";
 import { prisma } from "@/lib/db";
 
@@ -212,7 +212,7 @@ export async function GET(req: NextRequest) {
           return {
             ...r,
             variablesDetailed: d.variables.map(v => ({ name: v.name, standard_name: v.standardName || undefined, units: v.units || undefined, long_name: v.longName || undefined })),
-            distributionsDetailed: d.distributions.map(dist => ({ url: dist.url, format: dist.format, service: dist.accessService as any, size: dist.size || undefined, checksum: dist.checksum || undefined, access_rights: dist.accessRights || undefined }))
+            distributionsDetailed: d.distributions.map(dist => ({ url: dist.url, format: dist.format, service: dist.accessService as AccessService, size: dist.size || undefined, checksum: dist.checksum || undefined, access_rights: dist.accessRights || undefined }))
           };
         });
       }
