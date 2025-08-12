@@ -84,15 +84,32 @@ export type SearchResult = {
   results: Array<{
     id: string;
     doi?: string;
+    license?: string;
+    sourceSystem?: string;
     title: string;
     publisher?: string;
+    abstract?: string;
     time?: TemporalExtent;
     spatial?: SpatialExtent;
     variables?: string[];
+    variablesDetailed?: Array<{
+      name: string;
+      standard_name?: string;
+      units?: string;
+      long_name?: string;
+    }>;
     distributions?: Array<{
       url: string;
       format: string;
       service: AccessService;
+    }>;
+    distributionsDetailed?: Array<{
+      url: string;
+      format: string;
+      service: AccessService;
+      size?: number;
+      checksum?: string;
+      access_rights?: string;
     }>;
   }>;
 };
@@ -104,4 +121,3 @@ export type FacetStats = {
   variables: Record<string, number>;
   decades: Record<string, number>;
 };
-

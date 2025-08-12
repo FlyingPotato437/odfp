@@ -97,6 +97,9 @@ function buildWhere(query: SearchQuery): { where: Prisma.DatasetWhereInput; vari
         { title: { contains: qLike } },
         { abstract: { contains: qLike } },
         { publisher: { contains: qLike } },
+        { doi: { contains: qLike } },
+        { license: { contains: qLike } },
+        { sourceSystem: { contains: qLike } },
         {
           variables: {
             some: {
@@ -104,6 +107,16 @@ function buildWhere(query: SearchQuery): { where: Prisma.DatasetWhereInput; vari
                 { name: { contains: qLike } },
                 { longName: { contains: qLike } },
                 { standardName: { contains: qLike } },
+              ],
+            },
+          },
+        },
+        {
+          distributions: {
+            some: {
+              OR: [
+                { format: { contains: qLike } },
+                { accessService: { contains: qLike as unknown as Service } },
               ],
             },
           },
@@ -160,51 +173,60 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
   const textQuery = ((query.q || "") + " " + (variableTokens?.join(" ") || "")).trim();
 
   if (hasSpatial || textQuery) {
-    // Build SQL with FTS and spatial, returning ids; then hydrate via Prisma
-    const params: Array<string | number> = [];
-    let sql = `select id from "Dataset"`;
-    const clauses: string[] = [];
+    // Attempt dataset_fts view (variables + distributions), then fallback to Dataset FTS
+    try {
+      const params: Array<string | number> = [];
+      let sql = `select df.id from dataset_fts df`;
+      const clauses: string[] = [];
 
-    if (hasSpatial) {
-      if (query.bbox) {
-        const [minX, minY, maxX, maxY] = query.bbox;
-        params.push(minX, minY, maxX, maxY);
-        clauses.push(`geom is not null and ST_Intersects(geom, ST_MakeEnvelope($${params.length-3}, $${params.length-2}, $${params.length-1}, $${params.length}, 4326))`);
-      } else if (query.polygon && query.polygon.length >= 4) {
-        const wkt = `POLYGON((${query.polygon.map(([x,y]) => `${x} ${y}`).join(", ")}))`;
-        params.push(wkt);
-        clauses.push(`geom is not null and ST_Intersects(geom, ST_GeomFromText($${params.length}, 4326))`);
+      if (hasSpatial) {
+        if (query.bbox) {
+          const [minX, minY, maxX, maxY] = query.bbox;
+          params.push(minX, minY, maxX, maxY);
+          sql += ` join "Dataset" d on d.id = df.id`;
+          clauses.push(`d.geom is not null and ST_Intersects(d.geom, ST_MakeEnvelope($${params.length-3}, $${params.length-2}, $${params.length-1}, $${params.length}, 4326))`);
+        } else if (query.polygon && query.polygon.length >= 4) {
+          const wkt = `POLYGON((${query.polygon.map(([x,y]) => `${x} ${y}`).join(", ")}))`;
+          params.push(wkt);
+          sql += ` join "Dataset" d on d.id = df.id`;
+          clauses.push(`d.geom is not null and ST_Intersects(d.geom, ST_GeomFromText($${params.length}, 4326))`);
+        }
       }
-    }
 
-    if (textQuery) {
-      params.push(textQuery);
-      // Enhanced FTS: use phraseto_tsquery for better phrase matching, fallback to plainto_tsquery
-      const phraseQuery = textQuery.replace(/[^\w\s]/g, ' ').trim();
-      params.push(phraseQuery);
-      clauses.push(`(
-        search_tsvector @@ phraseto_tsquery('english', $${params.length}) or
-        search_tsvector @@ plainto_tsquery('english', $${params.length-1}) or
-        similarity(title, $${params.length-1}) > 0.2 or
-        similarity(abstract, $${params.length-1}) > 0.15
-      )`);
-    }
+      if (textQuery) {
+        const phraseQuery = textQuery.replace(/[^\w\s]/g, ' ').trim();
+        params.push(textQuery, phraseQuery);
+        clauses.push(`(df.tsv @@ phraseto_tsquery('english', $${params.length}) or df.tsv @@ plainto_tsquery('english', $${params.length-1}))`);
+      }
 
-    if (clauses.length) sql += ` where ` + clauses.join(" and ");
-    // Order: Phrase FTS rank desc, general FTS rank desc, trigram similarity desc, recency
-    sql += ` order by 
-      CASE WHEN search_tsvector @@ phraseto_tsquery('english', $${textQuery ? params.length : (params.push('') && params.length)}) 
-           THEN ts_rank_cd(search_tsvector, phraseto_tsquery('english', $${textQuery ? params.length : params.length})) 
-           ELSE 0 END desc,
-      ts_rank_cd(search_tsvector, plainto_tsquery('english', $${textQuery ? params.length-1 : params.length})) desc, 
-      similarity(title, $${textQuery ? params.length-1 : params.length}) desc, 
-      "updatedAt" desc`;
-    sql += ` limit $${params.push(size)} offset $${params.push((page - 1) * size)}`;
+      if (clauses.length) sql += ` where ` + clauses.join(" and ");
+      sql += ` order by 
+        CASE WHEN df.tsv @@ phraseto_tsquery('english', $${textQuery ? params.length : (params.push('') && params.length)})
+             THEN ts_rank_cd(df.tsv, phraseto_tsquery('english', $${textQuery ? params.length : params.length}))
+             ELSE 0 END desc,
+        ts_rank_cd(df.tsv, plainto_tsquery('english', $${textQuery ? params.length-1 : params.length})) desc`;
+      sql += ` limit $${params.push(size)} offset $${params.push((page - 1) * size)}`;
 
-    const idRows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(sql, ...params);
-    const ids = idRows.map(r => r.id);
-    const [totalRow] = await prisma.$queryRawUnsafe<Array<{ count: number }>>(`select count(*)::int as count from (${sql.replace(/limit \$\d+ offset \$\d+$/,'')}) s`, ...params.slice(0, params.length - 2));
-    const items = await prisma.dataset.findMany({ where: { id: { in: ids }, ...(where as unknown as Prisma.DatasetWhereInput) }, include: { variables: true, distributions: true } });
+      const idRows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(sql, ...params);
+      let ids = idRows.map(r => r.id);
+
+      // Expand id set with simple Prisma contains matches on DOI/license/sourceSystem when q is present
+      if (query.q && query.q.trim()) {
+        const extra = await prisma.dataset.findMany({
+          where: {
+            OR: [
+              { doi: { contains: query.q } },
+              { license: { contains: query.q } },
+              { sourceSystem: { contains: query.q } },
+            ],
+          },
+          select: { id: true },
+          take: Math.max(size * 2, 100),
+        });
+        const extraIds = new Set(extra.map(e => e.id));
+        ids = Array.from(new Set([...ids, ...extraIds]));
+      }
+      const items = await prisma.dataset.findMany({ where: { id: { in: ids }, ...(where as unknown as Prisma.DatasetWhereInput) }, include: { variables: true, distributions: true } });
 
     let filtered = items;
     if (variableTokens && variableTokens.length > 0) {
@@ -224,21 +246,103 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
       });
     }
 
-    return {
-      total: totalRow?.count ?? filtered.length,
-      page,
-      size,
-      results: filtered.map((d) => ({
-        id: d.id,
-        doi: d.doi || undefined,
-        title: d.title,
-        publisher: d.publisher || undefined,
-        time: { start: d.timeStart?.toISOString(), end: d.timeEnd?.toISOString() },
-        spatial: { bbox: [d.bboxMinX, d.bboxMinY, d.bboxMaxX, d.bboxMaxY] as [number, number, number, number] | undefined },
-        variables: d.variables.map((v) => v.name),
+      return {
+        total: ids.length,
+        page,
+        size,
+        results: filtered.map((d) => ({
+          id: d.id,
+          doi: d.doi || undefined,
+          license: d.license || undefined,
+          sourceSystem: (d as any).sourceSystem || undefined,
+          title: d.title,
+          publisher: d.publisher || undefined,
+          abstract: d.abstract || undefined,
+          time: { start: d.timeStart?.toISOString(), end: d.timeEnd?.toISOString() },
+          spatial: { bbox: [d.bboxMinX, d.bboxMinY, d.bboxMaxX, d.bboxMaxY] as [number, number, number, number] | undefined },
+          variables: d.variables.map((v) => v.name),
+            distributions: d.distributions.map((dist) => ({ url: dist.url, format: dist.format, service: toServiceStrict(dist.accessService) })),
+        })),
+      };
+    } catch (e) {
+      // Likely missing dataset_fts; will fallback to Prisma or Dataset FTS below.
+    }
+    try {
+      // Fallback to Dataset table with FTS/trigram
+      const params: Array<string | number> = [];
+      let sql = `select id from "Dataset"`;
+      const clauses: string[] = [];
+      if (hasSpatial) {
+        if (query.bbox) {
+          const [minX, minY, maxX, maxY] = query.bbox;
+          params.push(minX, minY, maxX, maxY);
+          clauses.push(`geom is not null and ST_Intersects(geom, ST_MakeEnvelope($${params.length-3}, $${params.length-2}, $${params.length-1}, $${params.length}, 4326))`);
+        } else if (query.polygon && query.polygon.length >= 4) {
+          const wkt = `POLYGON((${query.polygon.map(([x,y]) => `${x} ${y}`).join(", ")}))`;
+          params.push(wkt);
+          clauses.push(`geom is not null and ST_Intersects(geom, ST_GeomFromText($${params.length}, 4326))`);
+        }
+      }
+      if (textQuery) {
+        const phraseQuery = textQuery.replace(/[^\w\s]/g, ' ').trim();
+        params.push(textQuery, phraseQuery);
+        clauses.push(`(
+          search_tsvector @@ phraseto_tsquery('english', $${params.length}) or
+          search_tsvector @@ plainto_tsquery('english', $${params.length-1}) or
+          similarity(title, $${params.length-1}) > 0.2 or
+          similarity(abstract, $${params.length-1}) > 0.15
+        )`);
+      }
+      if (clauses.length) sql += ` where ` + clauses.join(" and ");
+      sql += ` order by 
+        CASE WHEN search_tsvector @@ phraseto_tsquery('english', $${textQuery ? params.length : (params.push('') && params.length)}) 
+             THEN ts_rank_cd(search_tsvector, phraseto_tsquery('english', $${textQuery ? params.length : params.length})) 
+             ELSE 0 END desc,
+        ts_rank_cd(search_tsvector, plainto_tsquery('english', $${textQuery ? params.length-1 : params.length})) desc, 
+        similarity(title, $${textQuery ? params.length-1 : params.length}) desc, 
+        "updatedAt" desc`;
+      sql += ` limit $${params.push(size)} offset $${params.push((page - 1) * size)}`;
+      const idRows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(sql, ...params);
+      const ids = idRows.map(r => r.id);
+      const [totalRow] = await prisma.$queryRawUnsafe<Array<{ count: number }>>(`select count(*)::int as count from (${sql.replace(/limit \$\d+ offset \$\d+$/,'')}) s`, ...params.slice(0, params.length - 2));
+      const items = await prisma.dataset.findMany({ where: { id: { in: ids }, ...(where as unknown as Prisma.DatasetWhereInput) }, include: { variables: true, distributions: true } });
+      let filtered = items;
+      if (variableTokens && variableTokens.length > 0) {
+        const tokens = new Set(variableTokens.map((t) => t.toLowerCase()));
+        filtered = filtered.sort((a, b) => {
+          const aScore = getVariableRelevanceScore(a.variables, tokens);
+          const bScore = getVariableRelevanceScore(b.variables, tokens);
+          return bScore - aScore;
+        });
+      }
+      if (requirePlatform) {
+        filtered = filtered.filter((d) => {
+          const platforms: unknown = (d as unknown as { platforms?: unknown }).platforms;
+          const list = Array.isArray(platforms) ? (platforms as unknown[]).map(String) : [];
+          return list.some((p) => p.toLowerCase() === String(requirePlatform).toLowerCase());
+        });
+      }
+      return {
+        total: totalRow?.count ?? filtered.length,
+        page,
+        size,
+        results: filtered.map((d) => ({
+          id: d.id,
+          doi: d.doi || undefined,
+          license: d.license || undefined,
+          sourceSystem: (d as any).sourceSystem || undefined,
+          title: d.title,
+          publisher: d.publisher || undefined,
+          abstract: d.abstract || undefined,
+          time: { start: d.timeStart?.toISOString(), end: d.timeEnd?.toISOString() },
+          spatial: { bbox: [d.bboxMinX, d.bboxMinY, d.bboxMaxX, d.bboxMaxY] as [number, number, number, number] | undefined },
+          variables: d.variables.map((v) => v.name),
           distributions: d.distributions.map((dist) => ({ url: dist.url, format: dist.format, service: toServiceStrict(dist.accessService) })),
-      })),
-    };
+        })),
+      };
+    } catch (e) {
+      // Fall back to Prisma filtering below
+    }
   }
 
   // Fallback: existing Prisma-based search
@@ -281,8 +385,11 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
     results: filtered.map((d) => ({
       id: d.id,
       doi: d.doi || undefined,
+      license: d.license || undefined,
+      sourceSystem: (d as any).sourceSystem || undefined,
       title: d.title,
       publisher: d.publisher || undefined,
+      abstract: d.abstract || undefined,
       time: { start: d.timeStart?.toISOString(), end: d.timeEnd?.toISOString() },
       spatial: { bbox: [d.bboxMinX, d.bboxMinY, d.bboxMaxX, d.bboxMaxY] as [number, number, number, number] | undefined },
       variables: d.variables.map((v) => v.name),
@@ -290,4 +397,3 @@ export async function executeSearch(query: SearchQuery): Promise<SearchResult> {
     })),
   };
 }
-

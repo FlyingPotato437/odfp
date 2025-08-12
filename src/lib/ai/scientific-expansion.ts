@@ -49,6 +49,19 @@ const SCIENTIFIC_TERMS = {
     related: ["dissolved_inorganic_carbon", "total_alkalinity", "pCO2", "ocean_acidification", "carbon_flux"],
     units: ["µmol/kg", "ppm", "pH units", "mol/m³", "µatm"],
     contexts: ["surface", "deep", "anthropogenic", "natural", "air-sea", "flux"]
+  },
+  // Fisheries and living marine resources
+  fisheries: {
+    synonyms: ["fishing", "catch", "landings", "bycatch", "trawl", "longline", "gillnet", "seine"],
+    related: ["cpue", "effort", "haul", "set", "gear_type", "vessel", "specimen", "length", "weight", "species_code"],
+    units: ["kg", "tons", "count", "number", "hours", "km", "nm"],
+    contexts: ["commercial", "survey", "groundfish", "pelagic", "nearshore", "offshore", "observer", "logbook"]
+  },
+  habitat: {
+    synonyms: ["substrate", "benthic", "reef", "shelf", "slope", "nursery"],
+    related: ["bathymetry", "slope", "rugosity", "sediment", "temperature", "salinity", "oxygen", "chlorophyll"],
+    units: ["m", "degrees", "psu", "mg/m³"],
+    contexts: ["shelf", "slope", "canyon", "coastal", "estuary"]
   }
 };
 
@@ -56,6 +69,7 @@ const LOCATION_EXPANSIONS = {
   "california": ["california current", "west coast", "pacific coast", "california coastal", "ccs"],
   "gulf of mexico": ["gom", "gulf", "gulf coast", "texas", "louisiana", "florida"],
   "atlantic": ["north atlantic", "south atlantic", "atlantic ocean", "nadw", "aaiw"],
+  "north atlantic": ["na", "subpolar gyre", "gulf stream", "sargasso", "iceland basin", "labrador sea"],
   "pacific": ["north pacific", "south pacific", "pacific ocean", "kuroshio", "california current"],
   "arctic": ["arctic ocean", "beaufort", "chukchi", "barents", "greenland sea", "polar"],
   "antarctic": ["southern ocean", "ross sea", "weddell sea", "circumpolar", "polar"],
@@ -104,9 +118,9 @@ export async function expandScientificQuery(query: string): Promise<ExpandedQuer
     }
   }
 
-  // Expand locations
+  // Expand locations (also expand abbreviations like 'na' safely when exact match)
   for (const [location, variants] of Object.entries(LOCATION_EXPANSIONS)) {
-    if (lowercaseQuery.includes(location)) {
+    if (lowercaseQuery.includes(location) || words.includes(location)) {
       confidenceScore += 0.15;
       variants.forEach(variant => locationVariants.add(variant));
     }

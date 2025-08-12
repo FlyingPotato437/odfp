@@ -86,7 +86,7 @@ export default function SearchPage() {
   }
   
   const { data, isLoading, isValidating } = useSWR<SearchResult>(
-    hasSearchQuery ? `/api/v1/search?${qs}` : null, 
+    hasSearchQuery ? `/api/v1/search?${qs}${qs ? '&' : ''}include=vars` : null, 
     fetcher, 
     { revalidateOnFocus: false, dedupingInterval: 1000 }
   );
@@ -136,15 +136,15 @@ export default function SearchPage() {
             
             {/* Geographic filter panel removed */}
             
-            <div className="rounded-xl border border-amber-200/50 bg-gradient-to-br from-amber-50 to-orange-50 p-5 shadow-lg dark:border-amber-800/50 dark:from-amber-950/50 dark:to-orange-950/50">
+            <div className="rounded-xl border border-blue-200/50 bg-gradient-to-br from-blue-50 to-indigo-50 p-5 shadow-lg dark:border-blue-800/50 dark:from-blue-950/50 dark:to-indigo-950/50">
               <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500">
                   <div className="h-3 w-3 rounded bg-white"></div>
                 </div>
-                <h2 className="font-semibold text-amber-900 dark:text-amber-100">Saved Searches</h2>
+                <h2 className="font-semibold text-blue-900 dark:text-blue-100">Saved Searches</h2>
               </div>
             <div className="space-y-2">
-              {saved.length === 0 && <div className="text-sm text-amber-700 dark:text-amber-300">No saved searches yet.</div>}
+              {saved.length === 0 && <div className="text-sm text-blue-700 dark:text-blue-300">No saved searches yet.</div>}
               {saved.map((s) => (
                 <div key={s.id} className="flex items-center justify-between gap-2 text-sm">
                   <button className="truncate text-left text-blue-700 hover:underline" onClick={() => {
@@ -163,12 +163,12 @@ export default function SearchPage() {
             </div>
           </div>
           {/* AI Assistant */}
-          <div className="rounded-xl border border-purple-200/50 bg-gradient-to-br from-purple-50 to-fuchsia-50 p-5 shadow-lg dark:border-purple-800/50 dark:from-purple-950/50 dark:to-fuchsia-950/50">
+          <div className="rounded-xl border border-blue-200/50 bg-gradient-to-br from-blue-50 to-indigo-50 p-5 shadow-lg dark:border-blue-800/50 dark:from-blue-950/50 dark:to-indigo-950/50">
             <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500">
                 <div className="h-3 w-3 rounded bg-white"></div>
               </div>
-              <h2 className="font-semibold text-purple-900 dark:text-purple-100">Ask ODFP (AI)</h2>
+              <h2 className="font-semibold text-blue-900 dark:text-blue-100">Ask ODFP (AI)</h2>
             </div>
             <Chat />
           </div>

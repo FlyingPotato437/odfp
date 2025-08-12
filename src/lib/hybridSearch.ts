@@ -3,8 +3,9 @@ import type { SearchQuery, SearchResult } from "@/lib/types";
 import { semanticSearch } from "@/lib/ai/indexer";
 import { prisma } from "@/lib/db";
 import type { Dataset, Variable, Distribution } from "@prisma/client";
+import { expandScientificQuery } from "@/lib/ai/scientific-expansion";
 
-function rrfOrder(lex: SearchResult, sem: Array<{ id: string; score: number }>, k = 100): string[] {
+export function rrfOrder(lex: SearchResult, sem: Array<{ id: string; score: number }>, k = 100): string[] {
   const rrf: Map<string, number> = new Map();
   const kRR = 60;
   // Lexical ranks
@@ -22,19 +23,28 @@ function rrfOrder(lex: SearchResult, sem: Array<{ id: string; score: number }>, 
 }
 
 export async function hybridSearch(query: SearchQuery): Promise<SearchResult> {
+  // Expand query to improve both lexical sorting and semantic recall
+  const hasQ = Boolean(query.q && query.q.trim());
+  const expansion = hasQ ? await expandScientificQuery(query.q!.trim()) : null;
+  const enrichedSemQuery = hasQ
+    ? [query.q!.trim(), (expansion?.scientificSynonyms || []).slice(0, 6).join(" "), (expansion?.locationVariants || []).slice(0, 6).join(" ")]
+        .filter(Boolean).join(" ")
+    : "";
+  const enrichedVariables = Array.from(new Set([...(query.variables || []), ...((expansion?.suggestedVariables || []).slice(0, 10))]));
+
   const [lex] = await Promise.all([
-    dbSearch({ ...query, page: 1, size: Math.max(query.size ?? 20, 100) }),
+    dbSearch({ ...query, variables: enrichedVariables.length ? enrichedVariables : query.variables, page: 1, size: Math.max(query.size ?? 20, 150) }),
   ]);
-  // Run semantic on the raw query if present
+  // Run semantic on the enriched query if present
   let sem: Array<{ id: string; score: number }> = [];
-  if (query.q && query.q.trim()) {
+  if (hasQ) {
     try {
-      sem = await semanticSearch(query.q, 100);
+      sem = await semanticSearch(enrichedSemQuery, 150);
     } catch {
       sem = [];
     }
   }
-  const kCandidate = Math.min((lex.results.length + sem.length) || 100, 500);
+  const kCandidate = Math.min((lex.results.length + sem.length) || 100, 600);
   const rankedIds = rrfOrder(lex, sem, Math.max(kCandidate, query.size ?? 20));
 
   // Hydrate: prefer lexical objects; fetch missing ids from DB
@@ -60,8 +70,11 @@ export async function hybridSearch(query: SearchQuery): Promise<SearchResult> {
       return {
         id: d.id,
         doi: d.doi || undefined,
+        license: (d as any).license || undefined,
+        sourceSystem: (d as any).sourceSystem || undefined,
         title: d.title,
         publisher: d.publisher || undefined,
+        abstract: (d as any).abstract || undefined,
         time: { start: d.timeStart?.toISOString(), end: d.timeEnd?.toISOString() },
         spatial: { bbox: [d.bboxMinX, d.bboxMinY, d.bboxMaxX, d.bboxMaxY] as [number, number, number, number] | undefined },
         variables: d.variables.map((v) => v.name),
@@ -70,12 +83,47 @@ export async function hybridSearch(query: SearchQuery): Promise<SearchResult> {
     })
     .filter(Boolean) as SearchResult["results"];
 
-  const fused = { total: hydrated.length, page: 1, size: hydrated.length, results: hydrated } satisfies SearchResult;
+  // Final re-ranking with domain-aware boosts
+  const nowYear = new Date().getUTCFullYear();
+  const tokens = new Set((enrichedVariables.map(v => v.toLowerCase()) || []));
+  const scored = hydrated.map((r, i) => {
+    // Base score from initial fused order (RRf proxy)
+    let score = 1 / (1 + i);
+    // Boost by service quality (prefer programmatic access)
+    const services = (r.distributions || []).map(d => d.service);
+    if (services.includes('ERDDAP')) score += 0.25;
+    if (services.includes('OPeNDAP')) score += 0.2;
+    if (services.includes('THREDDS')) score += 0.1;
+    // Variable relevance boost
+    const varNames = (r.variables || []).map(v => v.toLowerCase());
+    const varMatches = varNames.filter(v => Array.from(tokens).some(t => v.includes(t) || t.includes(v))).length;
+    score += Math.min(0.3, varMatches * 0.05);
+    // Recency proxy using time end
+    const endYear = r.time?.end ? new Date(r.time.end).getUTCFullYear() : undefined;
+    if (endYear && Number.isFinite(endYear)) {
+      const age = Math.max(0, nowYear - endYear);
+      score += Math.max(0, 0.25 - Math.min(0.25, age * 0.03));
+    }
+    // Publisher/source mild boost
+    const pub = (r.publisher || '').toLowerCase();
+    if (/noaa|ncei|ncep|swfsc|nmfs|copernicus|imos|whoi|ifremer|nasa/.test(pub)) score += 0.1;
+    // DOI / license openness boosts
+    if (r.doi) score += 0.05;
+    const lic = (r.license || '').toLowerCase();
+    if (/(cc|creative commons|odc|public|noaa open)/.test(lic)) score += 0.05;
+    // Query term hit in abstract/title for extra precision
+    if (query.q && query.q.trim()) {
+      const ql = query.q.trim().toLowerCase();
+      if ((r.title || '').toLowerCase().includes(ql)) score += 0.08;
+      if ((r.abstract || '').toLowerCase().includes(ql)) score += 0.05;
+    }
+    return { r, score };
+  }).sort((a,b) => b.score - a.score).map(x => x.r);
 
-  // Paginate fused according to requested page/size
+  const total = scored.length;
   const page = query.page ?? 1;
   const size = query.size ?? 20;
   const start = (page - 1) * size;
-  const pageItems = fused.results.slice(start, start + size);
-  return { total: fused.results.length, page, size, results: pageItems };
+  const pageItems = scored.slice(start, start + size);
+  return { total, page, size, results: pageItems };
 }

@@ -11,6 +11,7 @@ type Synthesis = {
   temporalAnalysis?: { timeRange?: string };
   spatialAnalysis?: { coverage?: string };
   nextSteps?: string[];
+  crossDatasetInsights?: string[];
 };
 
 export function Insights({ query }: Props) {
@@ -64,6 +65,16 @@ export function Insights({ query }: Props) {
                 <div className="mt-1 font-medium">{data.spatialAnalysis.coverage}</div>
               </div>
             )}
+            {data.nextSteps && data.nextSteps.length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="text-xs uppercase text-slate-500">Recommended Next Steps</div>
+                <ul className="mt-1 list-disc pl-5">
+                  {data.nextSteps.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           {data.recommendedDatasets?.length > 0 && (
             <div className="md:col-span-3">
@@ -76,6 +87,16 @@ export function Insights({ query }: Props) {
                   </a>
                 ))}
               </div>
+            </div>
+          )}
+          {data.crossDatasetInsights && data.crossDatasetInsights.length > 0 && (
+            <div className="md:col-span-3">
+              <div className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Cross-dataset opportunities</div>
+              <ul className="rounded-xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900 list-disc pl-5">
+                {data.crossDatasetInsights.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

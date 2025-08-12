@@ -1,178 +1,87 @@
-import { NextRequest } from "next/server";
-import { prisma } from "@/lib/db";
-import { isAdmin } from "@/lib/auth";
-import { fetchGlobalErddapData, transformGlobalErddapDataset, GLOBAL_ERDDAP_SERVERS } from "@/lib/connectors/global-erddap";
-import { updateDatasetEmbedding } from "@/lib/embeddings";
+import { NextRequest } from 'next/server';
+import { prisma } from '@/lib/db';
+import { fetchGlobalErddapData, transformGlobalErddapDataset, GLOBAL_ERDDAP_SERVERS } from '@/lib/connectors/global-erddap';
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes for global ingestion
+function auth(req: NextRequest): boolean {
+  const header = req.headers.get('authorization') || '';
+  const token = header.replace(/^bearer\s+/i, '');
+  const admin = process.env.ADMIN_TOKEN || 'odfp123';
+  return Boolean(token && token === admin);
+}
 
 export async function POST(req: NextRequest) {
-  if (!isAdmin(req as unknown as Request)) {
-    return Response.json({ error: "Forbidden" }, { status: 403 });
+  if (!auth(req)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const body = await req.json().catch(() => ({}));
+  const maxPer = Number(body?.maxDatasetsPerServer ?? 20);
+  const serverKeys: string[] = Array.isArray(body?.servers) ? body.servers : Object.keys(GLOBAL_ERDDAP_SERVERS);
+
+  const servers: Record<string, string> = {};
+  for (const key of serverKeys) {
+    if ((GLOBAL_ERDDAP_SERVERS as any)[key]) (servers as any)[key] = (GLOBAL_ERDDAP_SERVERS as any)[key];
+  }
+  if (Object.keys(servers).length === 0) {
+    return Response.json({ error: 'No valid servers specified' }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const maxDatasetsPerServer = typeof body.maxPerServer === "number" ? 
-    Math.min(body.maxPerServer, 100) : 25; // Conservative default
-  const selectedServers = Array.isArray(body.servers) ? 
-    body.servers : Object.keys(GLOBAL_ERDDAP_SERVERS).slice(0, 5); // Limit to 5 servers
-  const embed: boolean = body.embed === true;
-  
-  const serverUrls: Record<string, string> = {};
-  selectedServers.forEach((serverId: string) => {
-    if (GLOBAL_ERDDAP_SERVERS[serverId as keyof typeof GLOBAL_ERDDAP_SERVERS]) {
-      serverUrls[serverId] = GLOBAL_ERDDAP_SERVERS[serverId as keyof typeof GLOBAL_ERDDAP_SERVERS];
-    }
-  });
-
-  let totalProcessed = 0;
-  let totalCreated = 0;
-  let totalUpdated = 0;
-  let embeddedOk = 0;
-  let embeddedFail = 0;
-  const errors: string[] = [];
-
   try {
-    console.log(`Starting global ERDDAP ingestion from ${Object.keys(serverUrls).length} servers...`);
-    
-    const globalDatasets = await fetchGlobalErddapData(serverUrls, maxDatasetsPerServer);
-    console.log(`Fetched ${globalDatasets.length} datasets from global ERDDAP servers`);
+    const datasets = await fetchGlobalErddapData(servers, Math.max(1, Math.min(200, maxPer)));
+    const transformed = datasets.map(transformGlobalErddapDataset);
 
-    // Process datasets in batches to avoid overwhelming the database
-    const batchSize = 10;
-    for (let i = 0; i < globalDatasets.length; i += batchSize) {
-      const batch = globalDatasets.slice(i, i + batchSize);
-      
-      for (const globalDataset of batch) {
-        try {
-          const odfpDataset = transformGlobalErddapDataset(globalDataset);
-          
-          // Check if dataset already exists
-          const existing = await prisma.dataset.findUnique({
-            where: { id: odfpDataset.id }
+    let created = 0, updated = 0, errors: Array<{ id: string; error: string }> = [];
+    for (const d of transformed) {
+      try {
+        const exists = await prisma.dataset.findUnique({ where: { id: d.id } });
+        if (!exists) {
+          await prisma.dataset.create({
+            data: {
+              id: d.id,
+              title: d.title,
+              abstract: d.abstract,
+              publisher: d.publisher,
+              sourceSystem: d.sourceSystem,
+              timeStart: d.timeStart,
+              timeEnd: d.timeEnd,
+              bboxMinX: d.bboxMinX,
+              bboxMinY: d.bboxMinY,
+              bboxMaxX: d.bboxMaxX,
+              bboxMaxY: d.bboxMaxY,
+              variables: { create: d.variables.map((v: any) => ({ name: v.name, standardName: v.standardName, units: v.units, longName: v.longName })) },
+              distributions: { create: d.distributions.map((x: any) => ({ url: x.url, accessService: x.accessService, format: x.format })) },
+            },
           });
-
-          if (existing) {
-            // Update existing dataset
-            await prisma.dataset.update({
-              where: { id: odfpDataset.id },
-              data: {
-                title: odfpDataset.title,
-                abstract: odfpDataset.abstract,
-                publisher: odfpDataset.publisher,
-                timeStart: odfpDataset.timeStart,
-                timeEnd: odfpDataset.timeEnd,
-                bboxMinX: odfpDataset.bboxMinX,
-                bboxMinY: odfpDataset.bboxMinY,
-                bboxMaxX: odfpDataset.bboxMaxX,
-                bboxMaxY: odfpDataset.bboxMaxY,
-                variables: {
-                  deleteMany: {},
-                  create: odfpDataset.variables
-                },
-                distributions: {
-                  deleteMany: {},
-                  create: odfpDataset.distributions
-                }
-              }
-            });
-            totalUpdated++;
-          } else {
-            // Create new dataset
-            await prisma.dataset.create({
-              data: {
-                id: odfpDataset.id,
-                title: odfpDataset.title,
-                abstract: odfpDataset.abstract,
-                publisher: odfpDataset.publisher,
-                sourceSystem: odfpDataset.sourceSystem,
-                timeStart: odfpDataset.timeStart,
-                timeEnd: odfpDataset.timeEnd,
-                bboxMinX: odfpDataset.bboxMinX,
-                bboxMinY: odfpDataset.bboxMinY,
-                bboxMaxX: odfpDataset.bboxMaxX,
-                bboxMaxY: odfpDataset.bboxMaxY,
-                variables: {
-                  create: odfpDataset.variables
-                },
-                distributions: {
-                  create: odfpDataset.distributions
-                }
-              }
-            });
-            totalCreated++;
-          }
-
-          // Generate embeddings if requested
-          if (embed) {
-            const embeddingText = [
-              odfpDataset.title,
-              odfpDataset.abstract || '',
-              odfpDataset.publisher || '',
-              odfpDataset.variables.map(v => v.name).join(', ')
-            ].filter(Boolean).join('\n');
-
-            const embeddingSuccess = await updateDatasetEmbedding(odfpDataset.id, embeddingText);
-            if (embeddingSuccess) {
-              embeddedOk++;
-            } else {
-              embeddedFail++;
-            }
-          }
-
-          totalProcessed++;
-
-          // Progress logging
-          if (totalProcessed % 20 === 0) {
-            console.log(`Processed ${totalProcessed}/${globalDatasets.length} datasets...`);
-          }
-
-        } catch (error) {
-          const errorMsg = `Failed to process dataset ${globalDataset.datasetId} from ${globalDataset.serverId}: ${error}`;
-          errors.push(errorMsg);
-          console.error(errorMsg);
+          created++;
+        } else {
+          await prisma.dataset.update({
+            where: { id: d.id },
+            data: {
+              title: d.title,
+              abstract: d.abstract,
+              publisher: d.publisher,
+              sourceSystem: d.sourceSystem,
+              timeStart: d.timeStart,
+              timeEnd: d.timeEnd,
+              bboxMinX: d.bboxMinX,
+              bboxMinY: d.bboxMinY,
+              bboxMaxX: d.bboxMaxX,
+              bboxMaxY: d.bboxMaxY,
+              variables: { deleteMany: {}, create: d.variables.map((v: any) => ({ name: v.name, standardName: v.standardName, units: v.units, longName: v.longName })) },
+              distributions: { deleteMany: {}, create: d.distributions.map((x: any) => ({ url: x.url, accessService: x.accessService, format: x.format })) },
+            },
+          });
+          updated++;
         }
-      }
-      
-      // Small delay between batches
-      if (i + batchSize < globalDatasets.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (e: any) {
+        errors.push({ id: d.id, error: String(e?.message || e) });
       }
     }
 
-    console.log(`Global ERDDAP ingestion complete: ${totalCreated} created, ${totalUpdated} updated`);
+    // Refresh materialized FTS view if it exists
+    try { await prisma.$executeRawUnsafe('refresh materialized view dataset_fts'); } catch {}
 
-    return Response.json({
-      success: true,
-      summary: {
-        totalProcessed,
-        totalCreated,
-        totalUpdated,
-        embeddedOk,
-        embeddedFail,
-        serversProcessed: Object.keys(serverUrls),
-        errorCount: errors.length
-      },
-      errors: errors.slice(0, 10) // Return first 10 errors
-    });
-
-  } catch (error) {
-    console.error("Global ERDDAP ingestion failed:", error);
-    return Response.json({
-      success: false,
-      error: "Global ERDDAP ingestion failed",
-      details: error instanceof Error ? error.message : String(error),
-      summary: {
-        totalProcessed,
-        totalCreated,
-        totalUpdated,
-        embeddedOk,
-        embeddedFail,
-        errorCount: errors.length
-      },
-      errors: errors.slice(0, 10)
-    }, { status: 500 });
+    return Response.json({ servers: Object.keys(servers), fetched: datasets.length, created, updated, errors }, { status: 200 });
+  } catch (error: any) {
+    return Response.json({ error: String(error?.message || error) }, { status: 500 });
   }
 }

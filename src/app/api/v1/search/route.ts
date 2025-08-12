@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 import { SearchQuery } from "@/lib/types";
 import { hybridSearch } from "@/lib/hybridSearch";
+import { prisma } from "@/lib/db";
 
 function parseArrayParam(value: string | null): string[] | undefined {
   if (!value) return undefined;
@@ -60,6 +61,7 @@ export async function GET(req: NextRequest) {
   const size = url.searchParams.get("size");
   const sort = (url.searchParams.get("sort") || undefined) as SearchQuery["sort"];
   const out = (url.searchParams.get("output") || url.searchParams.get("out") || "json").toLowerCase();
+  const include = (url.searchParams.get("include") || "").toLowerCase();
 
   const query: SearchQuery = {
     q,
@@ -196,6 +198,25 @@ export async function GET(req: NextRequest) {
         "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });
+  }
+  // Enrich with detailed variables and distributions if requested
+  if (include.includes('vars') || include.includes('full')) {
+    try {
+      const ids = result.results.map(r => r.id);
+      if (ids.length > 0) {
+        const rows = await prisma.dataset.findMany({ where: { id: { in: ids } }, include: { variables: true, distributions: true } });
+        const map = new Map(rows.map(d => [d.id, d]));
+        result.results = result.results.map(r => {
+          const d = map.get(r.id);
+          if (!d) return r;
+          return {
+            ...r,
+            variablesDetailed: d.variables.map(v => ({ name: v.name, standard_name: v.standardName || undefined, units: v.units || undefined, long_name: v.longName || undefined })),
+            distributionsDetailed: d.distributions.map(dist => ({ url: dist.url, format: dist.format, service: dist.accessService as any, size: dist.size || undefined, checksum: dist.checksum || undefined, access_rights: dist.accessRights || undefined }))
+          };
+        });
+      }
+    } catch {}
   }
 
   return Response.json(result, { status: 200 });
