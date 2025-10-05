@@ -10,7 +10,7 @@ interface QueryUnderstanding {
   suggestedAlternatives: string[];
 }
 
-function detectQueryIntent(query: string, expansion: any): QueryUnderstanding {
+function detectQueryIntent(query: string, expansion: { expandedTerms: string[]; suggestedVariables: string[]; locationVariants: string[] }): QueryUnderstanding {
   const lowerQuery = query.toLowerCase();
 
   // Detect measurement type

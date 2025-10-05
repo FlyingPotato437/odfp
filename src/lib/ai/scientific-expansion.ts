@@ -313,7 +313,7 @@ Focus on oceanographic, atmospheric, and climate science terminology.`;
           if (aiParsed.confidence) {
             confidenceScore = Math.max(confidenceScore, aiParsed.confidence);
           }
-        } catch (parseError) {
+        } catch {
           console.warn("AI expansion failed: Invalid JSON response");
         }
       }

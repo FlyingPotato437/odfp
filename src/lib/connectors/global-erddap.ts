@@ -132,7 +132,7 @@ export async function fetchGlobalErddapData(
             // Users can specify constraints and download from the form
             const accessUrls = [
               {
-                type: 'download' as const,
+                type: 'data' as const,
                 format: 'HTML',
                 url: `${baseErddapUrl}/${dataService}/${datasetSummary.datasetID}.html`
               },
@@ -147,7 +147,7 @@ export async function fetchGlobalErddapData(
                 url: `${baseErddapUrl}/info/${datasetSummary.datasetID}/index.json`
               },
               {
-                type: 'opendap' as const,
+                type: 'data' as const,
                 format: 'DDS',
                 url: `${baseErddapUrl}/${dataService}/${datasetSummary.datasetID}.dds`
               }
@@ -156,7 +156,7 @@ export async function fetchGlobalErddapData(
             // Add WMS if griddap (spatial data)
             if (isGriddap) {
               accessUrls.push({
-                type: 'wms' as const,
+                type: 'metadata' as const,
                 format: 'WMS',
                 url: `${baseErddapUrl}/wms/${datasetSummary.datasetID}/request?service=WMS&version=1.3.0&request=GetCapabilities`
               });

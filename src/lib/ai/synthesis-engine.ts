@@ -197,7 +197,6 @@ export async function synthesizeDataInsights(query: string): Promise<DataSynthes
     const temporalGaps: string[] = [];
     if (timeRanges.length > 1) {
       const sorted = timeRanges.sort((a, b) => a.start.getTime() - b.start.getTime());
-      let curStart = sorted[0].start;
       let curEnd = sorted[0].end;
       for (let i = 1; i < sorted.length; i++) {
         const next = sorted[i];
@@ -206,7 +205,6 @@ export async function synthesizeDataInsights(query: string): Promise<DataSynthes
         } else {
           const gapYears = (next.start.getTime() - curEnd.getTime()) / (365 * 24 * 60 * 60 * 1000);
           if (gapYears > 1) temporalGaps.push(`${curEnd.getFullYear()}–${next.start.getFullYear()}`);
-          curStart = next.start;
           curEnd = next.end;
         }
       }
