@@ -119,41 +119,46 @@ export async function fetchGlobalErddapData(
             const info = await fetchErddapInfo(serverUrl, datasetSummary.datasetID);
             
             // Build access URLs based on dataset structure
-            const isGriddap = datasetSummary.dataStructure === 'griddap' || info.variables.some(v => 
+            const isGriddap = datasetSummary.dataStructure === 'griddap' || info.variables.some(v =>
               v.name && ['longitude', 'latitude', 'time'].includes(v.name.toLowerCase())
             );
             const dataService = isGriddap ? 'griddap' : 'tabledap';
-            
+
+            // Normalize server URL - ensure it ends with /erddap but no double slashes
+            const normalizedUrl = serverUrl.replace(/\/+$/, ''); // Remove trailing slashes
+            const baseErddapUrl = normalizedUrl.endsWith('/erddap') ? normalizedUrl : `${normalizedUrl}/erddap`;
+
+            // Use .html for interactive data access (always works)
+            // Users can specify constraints and download from the form
             const accessUrls = [
               {
-                type: 'data' as const,
-                format: 'NetCDF',
-                url: `${serverUrl}/erddap/${dataService}/${datasetSummary.datasetID}.nc`
+                type: 'download' as const,
+                format: 'HTML',
+                url: `${baseErddapUrl}/${dataService}/${datasetSummary.datasetID}.html`
+              },
+              {
+                type: 'preview' as const,
+                format: 'Graph',
+                url: `${baseErddapUrl}/${dataService}/${datasetSummary.datasetID}.graph`
               },
               {
                 type: 'metadata' as const,
                 format: 'JSON',
-                url: `${serverUrl}/erddap/info/${datasetSummary.datasetID}/index.json`
+                url: `${baseErddapUrl}/info/${datasetSummary.datasetID}/index.json`
               },
               {
-                type: 'preview' as const,
-                format: 'HTML',
-                url: `${serverUrl}/erddap/${dataService}/${datasetSummary.datasetID}.graph`
+                type: 'opendap' as const,
+                format: 'DDS',
+                url: `${baseErddapUrl}/${dataService}/${datasetSummary.datasetID}.dds`
               }
             ];
-            
-            // Add format-specific access URLs based on dataset type
+
+            // Add WMS if griddap (spatial data)
             if (isGriddap) {
-              accessUrls.splice(1, 0, {
-                type: 'data' as const,
-                format: 'Zarr',
-                url: `${serverUrl}/erddap/griddap/${datasetSummary.datasetID}.zarr`
-              });
-            } else {
-              accessUrls.splice(1, 0, {
-                type: 'data' as const,
-                format: 'CSV', 
-                url: `${serverUrl}/erddap/tabledap/${datasetSummary.datasetID}.csv`
+              accessUrls.push({
+                type: 'wms' as const,
+                format: 'WMS',
+                url: `${baseErddapUrl}/wms/${datasetSummary.datasetID}/request?service=WMS&version=1.3.0&request=GetCapabilities`
               });
             }
             

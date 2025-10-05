@@ -158,7 +158,7 @@ export async function GET(req: NextRequest) {
   }
 
   // CSV export if requested
-  const wantsCsv = out === "csv" || req.headers.get("accept")?.includes("text/csv");
+  const wantsCsv = out === "csv" || format === "csv" || req.headers.get("accept")?.includes("text/csv");
   if (wantsCsv) {
     const headers = [
       "id",
